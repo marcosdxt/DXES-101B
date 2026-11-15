@@ -325,15 +325,32 @@ Isso é o que a netlist garante: o sinal de entrada chega ao pino 4, o sinal par
 | 4–1 e 5–8 | Corrente (4–20 mA) | R70 (150 Ω) para GND, R71 (10 kΩ) em série com o ADC | V_ADC = I × 150 Ω | 0 a 22 mA (4 mA → 0,60 V; 20 mA → 3,00 V) |
 | 4–3 e 5–6 | Pull-up (sensor resistivo ou contato seco) | R63 (10 kΩ) para `3,3VA`, R65 (10 kΩ) em série com o ADC | V_ADC = 3,3 × Rs/(Rs + 10 kΩ) | Rs de 0 a ∞ (aberto → 3,3 V) |
 
-**Ressalva sobre a chave física.** O datasheet da SHOU HAN para a MST-23D18G2 (desenho de 13/07/2020, "CIRCUIT DIAGRAM") mostra, em cada polo, 4 terminais em linha, e o cursor une pares de terminais adjacentes conforme a posição. O diagrama não numera os terminais. No footprint usado (`SW-SMD_SHOU_MST23D18G2`), os pads 1-2-3-4 estão em linha de um lado e 8-7-6-5 em linha do outro (1 em frente ao 8, 4 em frente ao 5), com espaçamentos de 2,0 / 4,0 / 2,0 mm entre pads vizinhos. Se os terminais em linha do componente corresponderem aos pads nessa ordem, as três posições uniriam 1–2/8–7, 2–3/7–6 e 3–4/6–5, e o resultado seria outro:
+**Conferência contra o datasheet (15/11/2026): o esquema está ligado no terminal errado.** O "CIRCUIT DIAGRAM" do datasheet da SHOU HAN ([`docs/datasheets/MST-23D18G2-BD.pdf`](docs/datasheets/MST-23D18G2-BD.pdf), desenho de 13/07/2020, pág. 1) mostra, em cada polo, quatro contatos em linha: um curto, um **longo**, e mais dois curtos. As três posições (B, A e C) ligam sempre o contato **longo** a um dos outros três. O comum de cada polo é, portanto, o **segundo terminal da fileira**, e não o da ponta.
 
-| Posição (pares adjacentes) | Efeito na netlist |
+O símbolo que a LCSC/EasyEDA publica para a peça (C7507443) confirma a leitura e dá a numeração: fileira 1-2-3-4 de um lado e 8-7-6-5 do outro, com o **pino 2 comum de 1, 3 e 4** e o **pino 7 comum de 8, 6 e 5**. É a mesma numeração do footprint `SW-SMD_SHOU_MST23D18G2` usado na placa (pads 1, 2, 3, 4 em x = −4, −2, +2, +4 mm; 8, 7, 6, 5 em frente). O símbolo da EasyEDA é fonte secundária; o diagrama do datasheet não numera os terminais.
+
+O esquema da DXES-101B usa os pinos **4 e 5** (as pontas) como comuns. Com a chave real, o resultado em cada posição é:
+
+| Posição da chave (pinos unidos) | O que acontece no circuito atual |
 |---|---|
-| 3–4 e 6–5 | Funciona como "pull-up" (igual à terceira linha da tabela anterior) |
-| 2–3 e 7–6 | Entrada (pino 4) e saída para o ADC (pino 5) ficam abertas. `3,3VA` alimenta R63 → (R65 ∥ R67) → R69 → GND, consumindo 3,3 V/(10k + 7,3k + 10k) = 0,12 mA sem função |
-| 1–2 e 8–7 | Entrada e saída abertas; R67 ∥ R71 entre o shunt e R69, sem função |
+| 2–4 e 7–5 | Entrada (pino 4) → R67 (27 kΩ) → nó de R69 (10 kΩ para GND) → saída (pino 5). **Funciona como modo tensão**, V_ADC = Vin × 10/37 |
+| 2–3 e 7–6 | Entrada e saída ficam abertas. O pino do ADC flutua (só o grampo D35 e C32). `3,3VA` alimenta R63 → R65 ∥ R67 → R69 → GND sem função |
+| 2–1 e 7–8 | Entrada e saída ficam abertas. O pino do ADC flutua. R67 ∥ R71 ficam entre o shunt e R69, sem função |
 
-Nessa hipótese só uma das três posições mede alguma coisa e nas outras duas o pino do ADC fica flutuando. A correspondência entre os terminais do componente e os pads **é dedução, não está no datasheet**, e precisa ser verificada com a peça na mão antes de fabricar (ver seção 9.5 e pendência 1). O restante desta seção descreve as três funções como o esquema as pretende.
+Ou seja: **só o modo tensão funciona; os modos corrente e pull-up não existem na placa como está**, e em duas das três posições o ADC lê um valor indefinido.
+
+**Correção no esquema** (vale para K6 a K11): levar a entrada ao pino 2 e a saída para o ADC ao pino 7, e distribuir as três redes pelos pares 1/8, 3/6 e 4/5. Por exemplo:
+
+| Par | Rede | Modo |
+|---|---|---|
+| 1 e 8 | R70 (150 Ω) do pino 1 para GND; R71 (10 kΩ) do pino 1 ao pino 8 | Corrente |
+| 3 e 6 | R67 (27 kΩ) do pino 3 ao pino 6; R69 (10 kΩ) do pino 6 para GND | Tensão |
+| 4 e 5 | R63 (10 kΩ) do pino 4 ao `3,3VA`; R65 (10 kΩ) do pino 4 ao pino 5 | Pull-up |
+
+Antes de refazer o layout, vale um teste de continuidade com uma peça na mão (seção 9.5), porque o datasheet não marca o pino 1 no corpo e a peça não é simétrica: girada 180°, o comum cai nos pads 3 e 6.
+
+O restante desta seção descreve as três funções como o esquema as pretende.
+
 
 ### 4.3 Modo tensão
 
@@ -868,7 +885,7 @@ Só depois de resolvida a pendência 2 (conector de 10 vias). Conferir consumo t
 
 ## 10. Pendências conhecidas
 
-1. **Chave das entradas analógicas (K6 a K11).** O esquema usa a MST-23D18G2-BD como se os pinos 4 e 5 fossem comuns e os pinos 1/2/3 e 8/7/6 fossem as três posições. O datasheet descreve 4 terminais em linha por polo, com o cursor unindo pares adjacentes, sem numerar os terminais. Se os terminais seguirem a ordem dos pads do footprint, só uma posição funciona e nas outras duas o ADC fica flutuando (seção 4.2). Conferir com a peça antes de fabricar.
+1. **Chave das entradas analógicas (K6 a K11): erro de ligação.** O esquema usa os pinos 4 e 5 da MST-23D18G2-BD como comuns, mas o comum de cada polo é o segundo terminal (pinos 2 e 7), conforme o diagrama do datasheet e o símbolo da LCSC. Como está, só o modo tensão funciona; nas outras duas posições o ADC fica flutuando. Correção e detalhes na seção 4.2.
 2. **Conector de 10 vias.** No layout atual o conector K2 da 101B (K1 da 102) está girado 180° em relação ao encaixe correto. Mesmo corrigida a rotação, `DAC0`/`DAC1` da 102 caem em `PWM1`/`PWM0` da 101B (índices trocados; seção 5.3).
 3. **Relés em PC13/PC14.** `SR0` e `SR1` saem de PC13 e PC14 do STM32F030 e acionam as bases de Q13/Q14 por 1 kΩ (≈ 2,5 mA). Esses pinos não devem fornecer corrente (DS9773, Tabela 11, nota 1, conforme a revisão do conjunto; o documento não foi reaberto para este README). Remanejar os sinais ou aumentar os resistores de base.
 4. **PTC de 10 mA em série com as entradas e saídas analógicas.** PTC2 a PTC9 têm libref `PTC-FUSE-60V-10mA-0603`. Um laço de 4–20 mA trabalha acima de 10 mA, e a saída analógica fica limitada a essa ordem de corrente. Correntes de retenção e de atuação do BSMD0603-001-60V não confirmadas no datasheet.
@@ -887,3 +904,30 @@ Só depois de resolvida a pendência 2 (conector de 10 vias). Conferir consumo t
 17. **Empilhamento.** Núcleo de 1,6 mm entre os planos internos e 0,071 mm entre plano e camada externa; confirmar com o fabricante.
 18. **Datasheets não abertos.** Nenhum datasheet de componente pôde ser aberto para este documento (RY9320AT6, MST-23D18G2, EL3H7, HT03P700S, AX1RC3, LM324, 78L15, LM1117, MAX485, BAT54S, SMBJ, SM712, PTCs, BC846, BLM18PG121SN1D). Toda característica desses componentes citada aqui vem do nome da peça ou do libref e está por confirmar.
 19. **Documentação de fabricação.** O pipeline de CI em `tools/fab` ainda não publicou nenhum pacote em Releases; este README não tem links de download.
+
+## 11. Datasheets dos componentes
+
+Cópias baixadas da página de cada peça na LCSC em 15/11/2026, pelo código LCSC cadastrado no esquema. Só o da chave MST-23D18G2-BD foi lido por inteiro; os demais foram conferidos pelo código, não pelo conteúdo.
+
+| Componente | Onde | LCSC | Datasheet |
+|---|---|---|---|
+| Chave deslizante 2P3T SHOU HAN MST-23D18G2-BD | K6–K11 | C7507443 | [`MST-23D18G2-BD.pdf`](docs/datasheets/MST-23D18G2-BD.pdf) |
+| Optoacoplador EL3H7(C)(TA)-G | U4–U11 | C92243 | [`EL3H7-C-TA-G.pdf`](docs/datasheets/EL3H7-C-TA-G.pdf) |
+| MOSFET HT03P700S | Q1 e equivalentes | C49066900 | [`HT03P700S.pdf`](docs/datasheets/HT03P700S.pdf) |
+| Transceptor RS-485 MAX485ESA | U13, U14 | C5279041 | [`MAX485ESA.pdf`](docs/datasheets/MAX485ESA.pdf) |
+| Amplificador operacional LM324PWR | U12 | C7942 | [`LM324PWR.pdf`](docs/datasheets/LM324PWR.pdf) |
+| Regulador 78L15 | U1 | C5309538 | [`78L15.pdf`](docs/datasheets/78L15.pdf) |
+| Regulador 3,3 V LM1117S-3.3 | U3 | C126027 | [`LM1117S-3.3.pdf`](docs/datasheets/LM1117S-3.3.pdf) |
+| Indutor 10 µH do conversor | L1 | C9389 | [`INDUTOR-10uH-C9389.pdf`](docs/datasheets/INDUTOR-10uH-C9389.pdf) |
+| PTC BSMD0603-001-60V | PTC2–PTC9 | C914088 | [`BSMD0603-001-60V.pdf`](docs/datasheets/BSMD0603-001-60V.pdf) |
+| PTC JK-nSMD050-30 | PTC1 e equivalentes | C720075 | [`JK-nSMD050-30.pdf`](docs/datasheets/JK-nSMD050-30.pdf) |
+| PTC SMD1206B010TF | PSW7 e equivalentes | C269108 | [`SMD1206B010TF.pdf`](docs/datasheets/SMD1206B010TF.pdf) |
+| Diodo 1N4007 (M7) | D8 e equivalentes | C20754788 | [`1N4007-M7.pdf`](docs/datasheets/1N4007-M7.pdf) |
+| TVS SMBJ33CA | D3 e equivalentes | C3001986 | [`SMBJ33CA.pdf`](docs/datasheets/SMBJ33CA.pdf) |
+| TVS SMBJ15CA | D1 e equivalentes | C2760879 | [`SMBJ15CA.pdf`](docs/datasheets/SMBJ15CA.pdf) |
+| TVS SMBJ5.0A | D2 e equivalentes | C83333 | [`SMBJ5.0A.pdf`](docs/datasheets/SMBJ5.0A.pdf) |
+| TVS SM712 | D49 e equivalente | C22363671 | [`SM712.TCT-ES.pdf`](docs/datasheets/SM712.TCT-ES.pdf) |
+
+Sem código LCSC no esquema, por isso sem datasheet aqui: conversor RY9320AT6, relé AX1RC3, PTC ASMD1206H020, zener BZT52C5V1, diodo 1N4148 e os conectores (STLZ950, BPDDI, PEMN1).
+
+O modelo 3D da chave está em [`docs/3d/MST-23D18G2-BD.step`](docs/3d/MST-23D18G2-BD.step).
