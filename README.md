@@ -11,7 +11,7 @@ Este documento foi escrito a partir da netlist extraída dos esquemáticos e do 
 |---|---|
 | ![Lado superior](docs/img/render_top.png) | ![Lado inferior](docs/img/render_bottom.png) |
 
-> Imagens renderizadas pelo CI a partir do `.PcbDoc` (pacote `20261115-77d4010`).
+> Imagens renderizadas pelo CI a partir do `.PcbDoc` (pacote `20261115-45a4c7e`).
 <!-- /fab:imagens -->
 
 ## Índice
@@ -76,7 +76,7 @@ O sinal de campo entra pelos bornes das bordas da placa, passa pelo bloco de con
 ### Documentação de fabricação
 
 <!-- fab:downloads -->
-Gerados pelo CI (projeto sem variante de montagem: todos os componentes montados). Versão publicada: **`20261115-77d4010`**.
+Gerados pelo CI (projeto sem variante de montagem: todos os componentes montados). Versão publicada: **`20261115-45a4c7e`**.
 
 | Baixar | Conteúdo |
 |---|---|
@@ -131,7 +131,7 @@ PDF com as 10 folhas: [`docs/esquematico.pdf`](docs/esquematico.pdf)
 
 A imagem acima é a primeira folha (`DXES101B-659637-GENERAL.SchDoc`); as demais estão no PDF.
 
-Impresso pelo CI direto das 10 folhas do projeto (`DXES101B-659637-GENERAL.SchDoc`, `DXES101B-659637-POWER-AND-SIGNALS.SchDoc`, `DXES101B-659637-DIGITAL-OUTPUTS.SchDoc`, `DXES101B-659637-RELAYS.SchDoc`, `DXES101B-659637-DIGITAL-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-OUTPUTS.SchDoc`, `DXES101B-659637-COMM-PORTS.SchDoc`, `DXES101B-659637-EXPANSION-BUS.SchDoc`, `DXES101B-659637-MODEM-PORT.SchDoc`) (pacote `20261115-77d4010`).
+Impresso pelo CI direto das 10 folhas do projeto (`DXES101B-659637-GENERAL.SchDoc`, `DXES101B-659637-POWER-AND-SIGNALS.SchDoc`, `DXES101B-659637-DIGITAL-OUTPUTS.SchDoc`, `DXES101B-659637-RELAYS.SchDoc`, `DXES101B-659637-DIGITAL-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-OUTPUTS.SchDoc`, `DXES101B-659637-COMM-PORTS.SchDoc`, `DXES101B-659637-EXPANSION-BUS.SchDoc`, `DXES101B-659637-MODEM-PORT.SchDoc`) (pacote `20261115-45a4c7e`).
 <!-- /fab:esquema -->
 
 Em cada bloco o caminho é descrito para um canal, com os designadores reais; a tabela ao final de cada bloco lista os componentes equivalentes dos outros canais.

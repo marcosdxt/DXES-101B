@@ -1,6 +1,6 @@
 # Previa dos Gerbers — DXES-101B
 
-Versao do pacote: **20261115-77d4010**.
+Versao do pacote: **20261115-45a4c7e**.
 
 Uma imagem por camada, renderizada do mesmo `.kicad_pcb` que gerou os
 Gerbers. O contorno da placa esta presente em todas, para servir de
