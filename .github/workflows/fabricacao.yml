@@ -1,0 +1,122 @@
+name: Documentação de fabricação
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.PcbDoc'
+      - '**.SchDoc'
+      - '**.PrjPcb'
+      - 'tools/fab/**'
+      - '.github/workflows/fabricacao.yml'
+  pull_request:
+    paths:
+      - '**.PcbDoc'
+      - '**.SchDoc'
+      - '**.PrjPcb'
+      - 'tools/fab/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pacote:
+    runs-on: ubuntu-24.04
+    # placa de 4 camadas com modelos 3D: render e STEP demoram; sem limite, um
+    # kicad-cli travado seguraria o job pelas 6 horas padrao do Actions
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # O KiCad le o .PcbDoc do Altium pela API Python (PCB_IO_MGR.ALTIUM_DESIGNER),
+      # entao nao e preciso Altium nem Windows. Os modelos 3D vem embutidos no
+      # proprio .PcbDoc, entao o kicad-packages3d (2 GB) e dispensavel.
+      # KiCad 10 e nao 9: o 'kicad-cli pcb export 3dpdf' so existe a partir do 10.
+      - name: Instalar o KiCad e as ferramentas
+        run: |
+          sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
+          sudo apt-get update -qq
+          # O esquema usa Times New Roman, Arial e Verdana, e o silk usa Arial
+          # (todas no pacote mscorefonts). Sem as fontes, o texto sai com outra
+          # largura e desalinha.
+          echo 'ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true' \
+            | sudo debconf-set-selections
+          sudo apt-get install -y --no-install-recommends \
+            kicad xvfb poppler-utils librsvg2-bin ttf-mscorefonts-installer \
+            python3-openpyxl python3-pil
+          fc-cache -f
+          fc-list | grep -qi 'times new roman' || { echo 'ERRO: Times New Roman nao instalada'; exit 1; }
+          kicad-cli --version
+
+      - name: Gerar e validar o pacote
+        run: xvfb-run -a python3 tools/fab/build.py --out build --commit "${GITHUB_SHA::7}"
+
+      - name: Publicar os artefatos do build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentacao-fabricacao
+          path: |
+            build/*.zip
+            build/estavel/*
+            build/img/*.png
+            build/meta.json
+          retention-days: 30
+
+      # Release so nas branches, nunca em PR. Sao publicados dois jogos: os zips
+      # versionados, que ficam de arquivo, e as copias '-latest', que sustentam
+      # os links fixos do README.
+      - name: Publicar o Release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSAO=$(python3 -c "import json;print(json.load(open('build/meta.json'))['versao'])")
+          # projeto sem variante de montagem: meta.json traz a variante vazia
+          VARIANTE=$(python3 -c "import json;v=json.load(open('build/meta.json'))['variante'];print(f', variante \`{v}\`' if v else ', sem variante de montagem')")
+          gh release create "$VERSAO" build/*.zip build/estavel/* \
+            --title "Documentação de fabricação $VERSAO" \
+            --notes "Gerado automaticamente do \`.PcbDoc\`, dos \`.SchDoc\` e do \`.PrjPcb\` no commit \`${GITHUB_SHA::7}\`$VARIANTE.
+
+          $(sed -n '/^## Fabricacao da placa/,/^## Arquivos/p' build/fab/INSTRUCOES-FABRICACAO.md | head -n -1)"
+
+      - name: Atualizar o README, as imagens e a prévia
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p docs/img docs/gerbers
+          cp build/img/*.png docs/img/
+          cp build/estavel/*-esquema-latest.pdf docs/esquematico.pdf
+          rm -f docs/gerbers/*.png
+          cp build/fab/Previa/*.png docs/gerbers/
+          sed 's|](\([A-Za-z0-9_]*\.png\))|](gerbers/\1)|' \
+            build/fab/Previa/PREVIA-GERBERS.md > docs/PREVIA-GERBERS.md
+          # O README e escrito a mao; o CI so reescreve os blocos entre os
+          # marcadores <!-- fab:... -->. Enquanto o README nao existir, as
+          # imagens e a previa sao publicadas do mesmo jeito.
+          if [ -f README.md ]; then
+            python3 tools/fab/atualiza_readme.py --meta build/meta.json \
+              --release "https://github.com/${GITHUB_REPOSITORY}"
+          else
+            echo '::warning::README.md ainda nao existe: blocos gerados nao escritos'
+          fi
+
+      - name: Commitar de volta
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/img docs/gerbers docs/PREVIA-GERBERS.md docs/esquematico.pdf
+          if [ -f README.md ]; then git add README.md; fi
+          if git diff --cached --quiet; then
+            echo 'Nada mudou no README nem nas imagens.'
+            exit 0
+          fi
+          git commit -m "chore(fab): atualiza documentação, imagens e README [skip ci]
+
+          Gerado por .github/workflows/fabricacao.yml a partir do .PcbDoc, dos .SchDoc e do .PrjPcb."
+          git push origin "HEAD:${GITHUB_REF_NAME}"

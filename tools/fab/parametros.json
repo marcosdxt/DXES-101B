@@ -1,0 +1,34 @@
+{
+  "_comentario": [
+    "Chaves opcionais, omitidas porque o projeto nao as define: numero_dextro,",
+    "revisao (sem ela a versao do pacote e so data-commit), variante (o projeto",
+    "nao tem variante de montagem: tudo e montado), montagem.casa e teste",
+    "(pontos de medicao e divisor de saida para o bloco fab:teste do README).",
+    "Em processo, qualquer item ausente ou igual a 'a definir no pedido' sai",
+    "assim nas instrucoes de fabricacao; preencha quando o processo for fechado."
+  ],
+  "projeto": "DXES-101B",
+  "pcbdoc": "DXES101B-659637.PcbDoc",
+  "prjpcb": "DXES-101B.PrjPcb",
+  "esquema_glob": "DXES101B-659637-*.SchDoc",
+  "processo": {
+    "material": "a definir no pedido",
+    "espessura_mm": "a definir no pedido",
+    "empilhamento": "a definir no pedido",
+    "cobre_externo_oz": "a definir no pedido",
+    "cobre_interno_oz": "a definir no pedido",
+    "mascara_cor": "a definir no pedido",
+    "silk_cor": "a definir no pedido",
+    "acabamento": "a definir no pedido",
+    "tolerancia_contorno_mm": "a definir no pedido",
+    "teste_eletrico": "a definir no pedido",
+    "quantidade_prototipo": "a definir no pedido"
+  },
+  "montagem": {},
+  "observacoes": [
+    "Placa de 4 camadas: Top, plano interno de alimentacao dividido, plano interno GND e Bottom.",
+    "No Altium os dois internos sao planos negativos. Os Gerbers internos deste pacote sao positivos, com o cobre calculado pelo KiCad na importacao: conferir a previa dessas duas camadas contra o Altium antes de fabricar.",
+    "Componentes nos dois lados da placa: o pick and place e o CPL trazem a coluna de lado, e ha um desenho de montagem para cada lado.",
+    "Material, espessura, empilhamento, cobre, acabamento superficial e cores nao estao definidos no projeto: informar no pedido."
+  ]
+}
