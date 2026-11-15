@@ -5,7 +5,13 @@ Placa-base de entradas e saídas industriais do conjunto DXES. Recebe por cima, 
 Este documento foi escrito a partir da netlist extraída dos esquemáticos e do dump do `DXES101B-659637.PcbDoc`. Tudo o que depende de datasheet e não pôde ser aberto está marcado como **não confirmado no datasheet** e repetido na [seção 10](#10-pendências-conhecidas).
 
 <!-- fab:imagens -->
-As imagens da placa são geradas pelo CI na primeira execução.
+![Vista 3D da placa](docs/img/placa-3d.png)
+
+| Lado superior | Lado inferior |
+|---|---|
+| ![Lado superior](docs/img/render_top.png) | ![Lado inferior](docs/img/render_bottom.png) |
+
+> Imagens renderizadas pelo CI a partir do `.PcbDoc` (pacote `20261115-77d4010`).
 <!-- /fab:imagens -->
 
 ## Índice
@@ -70,7 +76,29 @@ O sinal de campo entra pelos bornes das bordas da placa, passa pelo bloco de con
 ### Documentação de fabricação
 
 <!-- fab:downloads -->
-Os pacotes de fabricação (Gerbers, furação, BOM, pick and place) não ficam versionados nesta pasta. Eles serão gerados por um pipeline de CI a partir dos arquivos do Altium, com os scripts em `tools/fab`, e publicados em Releases do repositório. Na data deste documento nenhum pacote havia sido publicado.
+Gerados pelo CI (projeto sem variante de montagem: todos os componentes montados). Versão publicada: **`20261115-77d4010`**.
+
+| Baixar | Conteúdo |
+|---|---|
+| [⬇ Pacote completo](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-fab-latest.zip) | Tudo abaixo num zip, com instruções de fabricação |
+| [⬇ Gerber + furação](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-gerber-drill-latest.zip) | Zip para a fábrica de placas: Gerber RS-274X e NC Drill Excellon |
+| [⬇ BOM (xlsx)](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-bom-latest.xlsx) | Colunas do OutJob: Comment, Description, Designator, Footprint, Quantity, LCSC |
+| [⬇ BOM (csv)](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-bom-latest.csv) | A mesma BOM em CSV |
+| [⬇ Pick and place](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-pick-place-latest.csv) | Designator, Comment, Layer, Footprint, Center-X, Center-Y, Rotation, Description |
+| [⬇ Desenho de montagem](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-montagem-latest.pdf) | PDF do lado superior |
+| [⬇ Desenho de montagem, lado inferior](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-montagem-bottom-latest.pdf) | PDF do lado inferior, visto por baixo |
+| [⬇ Esquema elétrico](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-esquema-latest.pdf) | PDF vetorial, 10 folha(s) |
+| [⬇ PDF 3D](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-3D-latest.pdf) | Modelo 3D interativo (abrir no Adobe Reader) |
+| [⬇ STEP](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-latest.step) | Modelo 3D da placa montada |
+| [⬇ DXF](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-latest.dxf) | Contorno, pads, furos e serigrafia, em mm |
+| [⬇ BOM JLCPCB](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-jlcpcb-bom-latest.csv) | Comment, Designator, Footprint, LCSC Part # |
+| [⬇ CPL JLCPCB](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-jlcpcb-cpl-latest.csv) | Designator, Mid X, Mid Y, Layer, Rotation |
+
+Os links apontam sempre para o último pacote publicado. Se o repositório for privado, eles exigem sessão do GitHub no navegador; por script, use `gh release download --pattern '*-latest.*'`. A prévia camada a camada dos Gerbers está em [`docs/PREVIA-GERBERS.md`](docs/PREVIA-GERBERS.md).
+
+> **Avisos do último build:**
+>
+> - cobre calculado pelo KiCad, e nao pelo Altium, nas zonas que vieram sem preenchimento (planos internos): Layer 1 / 3,3V, Layer 1 / 3,3VA, Layer 1 / GND_ISO, Layer 1 / VSYS, Layer 2 / GND. Conferir a previa dessas camadas contra o Altium antes de fabricar
 <!-- /fab:downloads -->
 
 ## 2. Características
@@ -97,7 +125,13 @@ Quantidades contadas na netlist. Valores elétricos de CIs só aparecem quando c
 ## 3. Descrição e funcionamento do circuito
 
 <!-- fab:esquema -->
-O esquema em PDF é impresso pelo CI na primeira execução.
+PDF com as 10 folhas: [`docs/esquematico.pdf`](docs/esquematico.pdf)
+
+![Esquema elétrico, folha 1 de 10](docs/img/esquematico.png)
+
+A imagem acima é a primeira folha (`DXES101B-659637-GENERAL.SchDoc`); as demais estão no PDF.
+
+Impresso pelo CI direto das 10 folhas do projeto (`DXES101B-659637-GENERAL.SchDoc`, `DXES101B-659637-POWER-AND-SIGNALS.SchDoc`, `DXES101B-659637-DIGITAL-OUTPUTS.SchDoc`, `DXES101B-659637-RELAYS.SchDoc`, `DXES101B-659637-DIGITAL-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-OUTPUTS.SchDoc`, `DXES101B-659637-COMM-PORTS.SchDoc`, `DXES101B-659637-EXPANSION-BUS.SchDoc`, `DXES101B-659637-MODEM-PORT.SchDoc`) (pacote `20261115-77d4010`).
 <!-- /fab:esquema -->
 
 Em cada bloco o caminho é descrito para um canal, com os designadores reais; a tabela ao final de cada bloco lista os componentes equivalentes dos outros canais.
@@ -544,13 +578,80 @@ Agrupada por libref, a partir dos esquemáticos: 287 componentes em 46 itens. Os
 ### BOM gerada pelo CI
 
 <!-- fab:bom -->
-A BOM com footprint e código de fornecedor é gerada pelo CI na primeira execução.
+Planilha: [`DXES-101B-bom-latest.xlsx`](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-bom-latest.xlsx). Os códigos são da LCSC.
+
+| Ref. | Qtd. | Valor | Descrição | Footprint | LCSC |
+|---|---|---|---|---|---|
+| C1, C2, C7, C8, C9, C14 | 6 | 22uF/25V | 25V 22uF X5R ±10% 1206 Multilayer Ceramic Capacitors MLCC - SMD/SMT R… | `CAP-1206` | [C12891](https://www.lcsc.com/product-detail/C12891.html) |
+| C3, C4, C10, C12, C15, C17 | 6 | 10uF/16V | 16V 10uF X5R ±20% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT R… | `CAP-0603` | [C92487](https://www.lcsc.com/product-detail/C92487.html) |
+| C5, C11, C13, C16, C18, C19, C20, C21, C22, C23, C24, C25, C26, C27, C28, C29, C30, C31, C32, C33, C34, C35, C36, C37, C38, C43, C45, C47, C48 | 29 | 100nF/50V | 50V 100nF X7R ±10% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT… | `CAP-0603` | [C14663](https://www.lcsc.com/product-detail/C14663.html) |
+| C6 | 1 | 100uF/35V | 100uF 35V Aluminum Electrolytic Capacitors Through Hole,D6.3xL11mm 20… | `CAP-TH_BD6.3-P2.50-D1.0-FD` | [C109392](https://www.lcsc.com/product-detail/C109392.html) |
+| C44, C46 | 2 | 220F/50V | 50V 22nF X7R ±10% 0603 Ceramic Capacitors ROHS | `CAP-0603` | [C1589](https://www.lcsc.com/product-detail/C1589.html) |
+| D1, D47, D48 | 3 | SMBJ15CA | 24.6A 600W@8/20us 24.4V 19.2V Bidirectional 15V SMB(DO-214AA) ESD and… | `DO214-AA` | [C2760879](https://www.lcsc.com/product-detail/C2760879.html) |
+| D2, D4 | 2 | SMBJ5.0A | 65.3A 600W 9.2V 6.4V Unidirectional 5V DO-214AA ESD and Surge Protect… | `DO214-AA` | [C83333](https://www.lcsc.com/product-detail/C83333.html) |
+| D3, D37, D38, D41, D42, D45, D46 | 7 | SMBJ33CA | A 600W@8/20us 24.4V 33V Bidirectional 15V SMB(DO-214AA) ESD and Surge… | `DO214-AA` | [C3001986](https://www.lcsc.com/product-detail/C3001986.html) |
+| D5, D6, D7, D11, D12, D13, D21, D22, D25, D26, D29, D30, D33, D34 | 14 | BZT52C5V1 | DIODE-ZENER-5V1-500mV | `SOD123` | — |
+| D8, D9, D10, D14, D15, D16 | 6 | 1N4007-M7 | C20754788 | `SMA` | [C20754788](https://www.lcsc.com/product-detail/C20754788.html) |
+| D17, D18, D19, D20, D23, D24, D27, D28, D31, D32 | 10 | 1N4148 | 1A 4ns 75V Independent 1V@50mA 150mA SOD-123 Single Diodes RoHS | `SOD123` | — |
+| D35, D36, D39, D40, D43, D44 | 6 | BAT54S | 30V Dual 200mA 800mV@100mA SOT-23 Schottky Barrier Diodes (SBD) ROHS | `SOT23-3` | [C916425](https://www.lcsc.com/product-detail/C916425.html) |
+| D49, D50 | 2 | SM712.TCT-ES | 400W@8/20us Bidirectional SOT-23 ESD and Surge Protection (TVS/ESD) R… | `SOT23-3` | [C22363671](https://www.lcsc.com/product-detail/C22363671.html) |
+| FB1, FB2, FB3, FB4, FB5, FB6, FB7, FB8, FB9, FB10, FB11, FB12, FB13 | 13 | BLM18PG121SN1D | FERRITE BEAD 120Ω 0603 1LN | `RES-0603` | [C14709](https://www.lcsc.com/product-detail/C14709.html) |
+| FD1, FD2, FD3 | 3 | FIDUCIAL |  | `FIDUCIAL` | — |
+| J1, J2, J4 | 3 | STLZ950/10G-5.08-H-GREEN | CONECTOR PHOENIX MECANO 10 VIAS PASSO 5,08mm VERDE 90º | `STLZ950-10G-H` | — |
+| J3 | 1 | STLZ950/2G-5.08-H-GREEN | CONECTOR PHOENIX MECANO 2 VIAS PASSO 5,08mm VERDE 90º | `STLZ950-02G-H` | — |
+| J5 | 1 | STLZ950/6G-5.08-H-GREEN | CONECTOR PHOENIX MECANO 6 VIAS PASSO 5,08mm VERDE 90º | `STLZ950-06G-H` | — |
+| J6 | 1 | PEMN1-05 | Conector PTH passo 2,5mm - Montagem em placa - 90º - 250VCA - 3A - 10… | `PEMN1-05` | — |
+| J7 | 1 | PEMN1-04 | Conector PTH passo 2,5mm - Montagem em placa - 90º - 250VCA - 3A - 10… | `PEMN1-06` | — |
+| K1, K3 | 2 | BPDDI-30MM-20 | BARRA DE PINOS DUPLA 2,54mm 20 VIAS 180º DUPLO ISOLADOR PINO 30mm | `BPDDI-30MM-20` | — |
+| K2 | 1 | BPDDI-30MM-10 | BARRA DE PINOS DUPLA 2,54mm 10 VIAS 180º DUPLO ISOLADOR PINO 30mm | `BPDDI-30MM-10` | — |
+| K4, K5 | 2 | AX1RC3 | RELÉ-METALTEX-BOBINA 24V-15A-SPDT | `AX1RCX` | — |
+| K6, K7, K8, K9, K10, K11 | 6 | MST-23D18G2-BD | SLIDE-SWITCH-SP3T | `SW-SMD_SHOU_MST23D18G2` | [C7507443](https://www.lcsc.com/product-detail/C7507443.html) |
+| L1 | 1 | 10uh | 2A 10uH ±20% Magnetic Shielded Inductor 2A SMD,5x5mm Fixed Inductors… | `IND-SMD_2P-L5.0-W5.0` | [C9389](https://www.lcsc.com/product-detail/C9389.html) |
+| PSW1, PSW2, PSW3, PSW4, PSW5, PSW6 | 6 | ASMD1206H020 | PTC RESET FUSE 30V 200mA 1206 | `PTC-1206` | — |
+| PSW7, PSW8, PSW9, PSW10 | 4 | SMD1206B010TF | 30V 100mA 100A 270mA 1206 Resettable Fuses ROHS | `RES-1206` | [C269108](https://www.lcsc.com/product-detail/C269108.html) |
+| PTC1, PTC10, PTC11 | 3 | JK-nSMD050-30 | 30V 500mA 100A 1A 150mΩ 1206 PTC Resettable Fuses ROHS | `PTC-1206` | [C720075](https://www.lcsc.com/product-detail/C720075.html) |
+| PTC2, PTC3, PTC4, PTC5, PTC6, PTC7, PTC8, PTC9 | 8 | BSMD0603-001-60V | 60V 10mA 20A 50mA 15Ω 0603 PTC Resettable Fuses ROHS | `PTC-0603` | [C914088](https://www.lcsc.com/product-detail/C914088.html) |
+| Q1, Q2, Q3, Q7, Q8, Q9 | 6 | HT03P700S | MOSFET P-CH 30V 6A SOT-223 | `SOT-223-3_L6.7-W3.7-P2.30-LS7.0-BR_2` | [C49066900](https://www.lcsc.com/product-detail/C49066900.html) |
+| Q4, Q5, Q6, Q10, Q11, Q12, Q13, Q14, Q15, Q16 | 10 | BC846 | 65V 200@10mA,5V 250mW 100mA NPN SOT-23 Bipolar (BJT) ROHS | `SOT23-3` | [C87062](https://www.lcsc.com/product-detail/C87062.html) |
+| R1 | 1 | 69.8K | 100mW Thick Film Resistor 75V ±100ppm/℃ ±1% 69.8K 0603 Chip Resistor… | `RES-0603` | [C2907025](https://www.lcsc.com/product-detail/C2907025.html) |
+| R2 | 1 | 9.53K | 100mW Thick Film Resistor 75V ±100ppm/℃ ±1% 9.53K 0603 Chip Resistor… | `RES-0603` | [C23127](https://www.lcsc.com/product-detail/C23127.html) |
+| R3, R4, R5, R15, R16, R17 | 6 | 100K | 100mW Thick Film Resistor 75V ±100ppm/℃ ±1% 100kΩ 0603 Chip Resistor… | `RES-0603` | [C14675](https://www.lcsc.com/product-detail/C14675.html) |
+| R6, R7, R8, R18, R19, R20, R33, R34, R35, R36, R41, R42, R43, R44, R49, R50, R51, R52, R57, R58, R59, R60 | 22 | 2K | 250mW Thick Film Resistor 200V ±100ppm/℃ ±5% 2kΩ 1206 Chip Resistor -… | `RES-1206` | [C2907466](https://www.lcsc.com/product-detail/C2907466.html) |
+| R9, R10, R11, R12, R13, R14, R21, R22, R23, R24, R25, R26, R28, R30, R37, R38, R45, R46, R53, R54, R61, R62, R63, R64, R65, R66, R69, R71, R72, R74, R75, R76, R77, R78, R81, R83, R84, R86, R87, R88, R89, R90, R93, R95, R96, R98, R100, R101, R106, R107 | 50 | 10K | 100mW Thick Film Resistor 75V ±100ppm/℃ ±1% 10kΩ 0603 Chip Resistor -… | `RES-0603` | [C98220](https://www.lcsc.com/product-detail/C98220.html) |
+| R27, R29, R104, R110 | 4 | 1K | 100mW Thick Film Resistor 75V ±100ppm/℃ ±1% 1kΩ 0603 Chip Resistor -… | `RES-0603` | [C22548](https://www.lcsc.com/product-detail/C22548.html) |
+| R31, R32, R39, R40, R47, R48, R55, R56, R103, R109 | 10 | 2K | 100mW Thick Film Resistor 75V ±100ppm/℃ ±2% 1kΩ 0603 Chip Resistor -… | `RES-0603` | [C22975](https://www.lcsc.com/product-detail/C22975.html) |
+| R67, R68, R79, R80, R91, R92 | 6 | 27K | 100mW Thick Film Resistor 75V ±100ppm/℃ ±1% 10kΩ 0603 Chip Resistor -… | `RES-0603` | [C98220](https://www.lcsc.com/product-detail/C98220.html) |
+| R70, R73, R82, R85, R94, R97 | 6 | 150R | 500mW 150Ω 200V ±100ppm/℃ Thick Film Resistor ±5% 1210 Chip Resistor… | `RES-1210` | [C620692](https://www.lcsc.com/product-detail/C620692.html) |
+| R99, R102, R105, R108 | 4 | 100R | 100mW Thick Film Resistor 75V ±100ppm/℃ ±1% 100Ω 0603 Chip Resistor -… | `RES-0603` | [C105588](https://www.lcsc.com/product-detail/C105588.html) |
+| U1 | 1 | 78L15 | 3-Terminal Positive Voltage Regulator - SOT89 | `SOT-89-3_L4.5-W2.5-P1.50-LS4.1-BR` | [C5309538](https://www.lcsc.com/product-detail/C5309538.html) |
+| U2 | 1 | RY9320AT6 | 500kHz Buck Adjustable 2A SOT-23-6 Voltage Regulators - DC DC Switchi… | `SOT23-6` | — |
+| U3 | 1 | LM1117S-3.3 | LM1117S-3.3 | `SOT-223-3_L6.7-W3.7-P2.30-LS7.0-BR_2` | [C126027](https://www.lcsc.com/product-detail/C126027.html) |
+| U4, U5, U6, U7, U8, U9, U10, U11 | 8 | EL3H7(C)(TA)-G | 80V 3.75kV 50mA 200mV@10mA,1mA 6V 1.2V DC SSOP-4-1.27mm Transistor, P… | `SSOP-4` | [C92243](https://www.lcsc.com/product-detail/C92243.html) |
+| U12 | 1 | LM324PWR | Quad 20nA 0.5V/us 1.2MHz TSSOP-14 Operational Amplifier ROHS | `TSSOP-14` | [C7942](https://www.lcsc.com/product-detail/C7942.html) |
+| U13, U14 | 2 | MAX485ESA | Low-Power, Slew-Rate-Limited RS-485/RS-422 Transceivers | `SOIC-08` | [C5279041](https://www.lcsc.com/product-detail/C5279041.html) |
+
+Sem código LCSC: D5, D6, D7, D11, D12, D13, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30, D31, D32, D33, D34, FD1, FD2, FD3, J1, J2, J3, J4, J5, J6, J7, K1, K2, K3, K4, K5, PSW1, PSW2, PSW3, PSW4, PSW5, PSW6, U2.
 <!-- /fab:bom -->
 
 ## 7. Placa
 
 <!-- fab:placa -->
-Os dados medidos pelo CI entram aqui na primeira execução.
+| Item | Valor |
+|---|---|
+| Contorno | 125.05 × 80.05 mm |
+| Camadas de cobre | 4 |
+| Componentes na placa | 290 |
+| Montados | 290 (277 SMD + 13 PTH) |
+| Montados por lado | 284 no superior, 6 no inferior |
+| Nets | 209 |
+| Trilha mínima | 0.2 mm |
+| Furação | 311 furos (311 metalizados + 0 não metalizados), de 0.40 mm a 3.50 mm |
+
+![Posição dos componentes, lado superior](docs/img/montagem-top.png)
+
+![Posição dos componentes, lado inferior](docs/img/montagem-bottom.png)
+
+Desenho de montagem, gerado pelo CI.
 <!-- /fab:placa -->
 
 Dados do dump do `DXES101B-659637.PcbDoc`. Coordenadas em mm a partir da origem do arquivo, que coincide com o canto inferior esquerdo do contorno.
