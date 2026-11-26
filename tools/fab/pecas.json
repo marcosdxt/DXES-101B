@@ -1,9 +1,0 @@
-{
-  "_comentario": [
-    "Este arquivo e so de EXCECAO. O padrao e: componente montado na variante e",
-    "com codigo LCSC no esquema entra na BOM e no CPL da JLCPCB.",
-    "Use uma entrada aqui, pela chave do codigo LCSC, para tirar uma peca da",
-    "montagem da JLCPCB (montar_jlcpcb: false) ou trocar a descricao que sai",
-    "na BOM (descricao: ...)."
-  ]
-}

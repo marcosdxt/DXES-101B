@@ -118,15 +118,52 @@ def ler_streams(caminho):
     return streams
 
 
+class Campos(dict):
+    """Registro com chave sem caixa: 'OwnerIndex' e 'OWNERINDEX' sao a mesma.
+
+    Ha versoes do Altium que gravam as chaves em maiusculas (RECORD=1|OWNERINDEX=..)
+    e outras em CamelCase (OwnerIndex=..); o codigo consulta em CamelCase.
+    """
+
+    def __init__(self, *args, **kw):
+        super().__init__()
+        self.update(*args, **kw)
+
+    def __setitem__(self, chave, valor):
+        super().__setitem__(chave.lower(), valor)
+
+    def __getitem__(self, chave):
+        return super().__getitem__(chave.lower())
+
+    def __contains__(self, chave):
+        return super().__contains__(chave.lower())
+
+    def get(self, chave, padrao=None):
+        return super().get(chave.lower(), padrao)
+
+    def setdefault(self, chave, padrao=None):
+        return super().setdefault(chave.lower(), padrao)
+
+    def pop(self, chave, *padrao):
+        return super().pop(chave.lower(), *padrao)
+
+    def update(self, *args, **kw):
+        for chave, valor in dict(*args, **kw).items():
+            self[chave] = valor
+
+
 def _campos(bruto):
-    """'|A=1|%UTF8%A=1|B=2' -> {'A': '1', 'B': '2'}; a copia UTF-8 tem prioridade."""
-    campos, utf8 = {}, {}
+    """'|A=1|%UTF8%A=1|B=2' -> {'A': '1', 'B': '2'}; a copia UTF-8 tem prioridade.
+
+    As chaves nao ligam para maiusculas (ver Campos).
+    """
+    campos, utf8 = Campos(), {}
     for parte in bruto.split(b"|"):
         chave, igual, valor = parte.partition(b"=")
         if not igual:
             continue
         chave = chave.decode("latin1").strip()
-        if chave.startswith("%UTF8%"):
+        if chave.upper().startswith("%UTF8%"):
             utf8[chave[6:]] = valor.decode("utf-8", "replace").rstrip("\x00")
         else:
             campos[chave] = valor.decode("cp1252", "replace").rstrip("\x00")
@@ -151,7 +188,7 @@ def registros(caminho):
         corpo = stream[pos + 4:pos + 4 + tamanho]
         pos += 4 + tamanho
         if binario:
-            saida.append({"RECORD": "binario"})
+            saida.append(Campos(RECORD="binario"))
             continue
         campos = _campos(corpo.rstrip(b"\x00"))
         if "HEADER" in campos and "RECORD" not in campos:
@@ -203,7 +240,7 @@ def componentes(caminho):
         if tipo == "34":
             designadores[indice] = reg.get("Text", "")
         elif tipo == "41" and reg.get("Name"):
-            parametros.setdefault(indice, {})[reg["Name"]] = reg.get("Text", "")
+            parametros.setdefault(indice, Campos())[reg["Name"]] = reg.get("Text", "")
         elif tipo == "44":
             # lista de implementacoes: os RECORD=45 seguintes pertencem a ela
             dono_do_modelo = indice
@@ -214,7 +251,7 @@ def componentes(caminho):
 
     saida = []
     for indice, comp in sorted(donos.items()):
-        params = parametros.get(indice, {})
+        params = parametros.get(indice, Campos())
         try:
             partes = int(comp.get("PartCount", "1"))
         except ValueError:

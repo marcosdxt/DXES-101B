@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Gera a documentacao de fabricacao e montagem da placa, sem o Altium.
+"""Gera a documentacao de fabricacao e montagem de UMA placa, sem o Altium.
+
+Quem chama e o fab_todas.py, um processo por placa (no KiCad 10 nao da para
+abrir duas placas no mesmo processo). A placa e descrita por um json em
+tools/fab/placas/<slug>.json; os caminhos dele sao relativos a 'raiz'.
+
+Modos, conforme o que a placa tem:
+    completo     .PcbDoc e esquema: tudo abaixo
+    so-esquema   sem .PcbDoc: PDF e PNG do esquema e BOM do esquema
+    so-pcb       sem esquema: Gerber, furacao, pick and place, 3D e previa
 
 Fontes:
     .PcbDoc   -> geometria: Gerber, furacao, pick and place, montagem, 3D, STEP, DXF
@@ -8,8 +17,8 @@ Fontes:
                  esquema (lido direto do binario por esquema.py / esquema_svg.py)
     .PrjPcb   -> ordem das folhas do esquema e variantes de montagem (componentes
                  nao montados), quando o projeto tem variante
-    parametros.json -> processo de fabricacao e, se houver, a variante a gerar
-    pecas.json      -> excecoes da BOM
+    placas/<slug>.json -> processo de fabricacao e, se houver, a variante a gerar
+    'pecas' no json (ou tools/fab/pecas.json) -> excecoes da BOM
 
 Sai em <out>: fab/ com o pacote, img/ com as imagens do README, estavel/ com as
 copias de nome fixo para o Release, os .zip e meta.json.
@@ -29,13 +38,43 @@ import sys
 import zipfile
 from collections import Counter, defaultdict
 
-import pcbnew
+# pcbnew so e importado quando a placa tem .PcbDoc: o modo so-esquema roda
+# sem o KiCad.
+pcbnew = None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import esquema  # noqa: E402
 import esquema_svg  # noqa: E402
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
+
+# Projeto sem variantes de montagem: "variante" vazia, nula ou "[No Variations]"
+# (o nome que o Altium mostra) no json. Tudo montado, sem sufixo nos arquivos.
+SEM_VARIANTE_ALTIUM = "[No Variations]"
+
+# Modelos 3D que o KiCad nao abre (nativos do SolidWorks). O importador do
+# Altium os embute assim mesmo, e um so derruba o render, o PDF 3D e o STEP.
+EXT_MODELO_ILEGIVEL = (".sldprt", ".sldasm")
+
+# Codigo LCSC e 'C' seguido de digitos. Outro valor no campo (ex.: '1000',
+# sobra de biblioteca) nao pode ir para a BOM nem para o CPL da JLCPCB.
+LCSC_VALIDO = re.compile(r"C\d+")
+
+
+def carregar_pcbnew():
+    global pcbnew
+    if pcbnew is None:
+        import pcbnew as _pcbnew
+        pcbnew = _pcbnew
+    return pcbnew
+
+
+def achar(padrao):
+    """glob que nao liga para maiusculas: .PcbDoc, .PCBDOC e .pcbdoc sao o mesmo."""
+    def sem_caixa(trecho):
+        return "".join(f"[{c.lower()}{c.upper()}]" if c.isalpha() else
+                       ("[[]" if c == "[" else c) for c in trecho)
+    return sorted(glob.glob(sem_caixa(padrao)))
 
 # Camadas nao-cobre, fixas. O cobre entra depois, conforme a placa.
 CAMADAS_FIXAS = [
@@ -85,7 +124,7 @@ def avisar(msg):
 
 
 def mm(valor):
-    return pcbnew.ToMM(valor)
+    return carregar_pcbnew().ToMM(valor)
 
 
 def rodar(cmd, **kw):
@@ -116,6 +155,7 @@ def importar(pcbdoc, dir_kicad):
     de funcionar depois que outra placa e carregada ou salva no mesmo
     processo, entao nenhum objeto do pcbnew sai desta funcao.
     """
+    carregar_pcbnew()
     board = pcbnew.PCB_IO_MGR.Load(pcbnew.PCB_IO_MGR.ALTIUM_DESIGNER, pcbdoc)
 
     # Gerber, furacao e pick and place precisam compartilhar a mesma origem.
@@ -134,7 +174,12 @@ def importar(pcbdoc, dir_kicad):
                       for pd in fp.Pads())
         except TypeError:
             tht = bool(fp.GetAttributes() & pcbnew.FP_THROUGH_HOLE)
+        try:
+            valor = str(fp.GetValue())
+        except Exception:
+            valor = ""
         footprints[ref] = {
+            "valor": valor,
             "footprint": fp.GetFPIDAsString().split(":")[-1],
             "tecnologia": "THT" if tht else "SMD",
             "lado": "bottom" if fp.IsFlipped() else "top",
@@ -168,7 +213,50 @@ def importar(pcbdoc, dir_kicad):
         pass
     pcbnew.SaveBoard(destino, board)
     info["zonas_preenchidas"] = preencher_zonas_vazias(destino)
+    texto = open(destino, encoding="utf-8").read()
+    limpo = tirar_modelos_ilegiveis(texto)
+    if limpo != texto:
+        open(destino, "w", encoding="utf-8").write(limpo)
     return info, destino
+
+
+def tirar_modelos_ilegiveis(texto):
+    """Tira do .kicad_pcb os blocos '(model ...)' em formato que o KiCad nao le."""
+    partes, pos, tirados = [], 0, []
+    for achado in re.finditer(r'\(model "([^"]*)"', texto):
+        if achado.start() < pos or not achado.group(1).lower().endswith(EXT_MODELO_ILEGIVEL):
+            continue
+        fim = fim_do_bloco(texto, achado.start())
+        partes.append(texto[pos:achado.start()])
+        pos = fim
+        tirados.append(achado.group(1).replace("\\", "/").split("/")[-1])
+    partes.append(texto[pos:])
+    if tirados:
+        avisar("3D: modelos em formato que o KiCad nao le (SolidWorks) ficaram fora do "
+               f"render, do PDF 3D e do STEP: {', '.join(sorted(set(tirados)))}")
+    return "".join(partes)
+
+
+def fim_do_bloco(texto, inicio):
+    """Posicao logo depois do ')' que fecha o '(' em 'inicio', respeitando strings."""
+    nivel, i, em_texto = 0, inicio, False
+    while i < len(texto):
+        c = texto[i]
+        if em_texto:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                em_texto = False
+        elif c == '"':
+            em_texto = True
+        elif c == "(":
+            nivel += 1
+        elif c == ")":
+            nivel -= 1
+            if nivel == 0:
+                break
+        i += 1
+    return i + 1
 
 
 def preencher_zonas_vazias(kicad_pcb):
@@ -210,6 +298,7 @@ def preencher_zonas_vazias(kicad_pcb):
 
 def _preencher_zonas(kicad_pcb):
     """Corpo do --preencher-zonas; ver preencher_zonas_vazias."""
+    carregar_pcbnew()
     board = pcbnew.LoadBoard(kicad_pcb)
     vazias = []
     for zona in board.Zones():
@@ -451,12 +540,29 @@ def ordem(designador):
     return (letras, int(designador[len(letras):] or 0), designador)
 
 
-def montar_bom(do_pcb, folhas, pecas, nao_montados):
-    """Junta o esquema (BOM, LCSC) com o PCB (footprint, lado, tecnologia)."""
-    do_esquema, origem_folha = {}, {}
+def mesmo_footprint(do_esquema, do_pcb):
+    """Footprint do esquema e do PCB batem? Sem ligar para caixa e espacos, e
+    aceitando o nome do PCB cortado (conversao do P-CAD trunca o nome) ou com o
+    sufixo '(Primary)' de biblioteca."""
+    if not do_esquema:
+        return True
+    a = re.sub(r"\s+", " ", do_esquema).strip().upper()
+    b = re.sub(r"\s*\(PRIMARY\)$", "", re.sub(r"\s+", " ", do_pcb).strip().upper())
+    return a == b or (len(b) >= 8 and a.startswith(b))
+
+
+def ler_esquema(folhas):
+    """{designador: componente} de todas as folhas (multiparte entra uma vez)."""
+    do_esquema, origem_folha, sem_anotacao = {}, {}, 0
     for folha in folhas:
         for comp in esquema.componentes(folha):
             ref = comp["designador"]
+            if ref.endswith("?"):
+                # esquema nao anotado (U?, R?): cada simbolo e um componente; a
+                # chave interna ganha um numero, o designador continua 'U?'
+                sem_anotacao += 1
+                do_esquema[f"{ref}#{sem_anotacao}"] = comp
+                continue
             if ref in do_esquema:
                 if max(comp.get("partes", 1), do_esquema[ref].get("partes", 1)) <= 1:
                     avisar(f"designador {ref} repetido sem ser multiparte: "
@@ -465,6 +571,32 @@ def montar_bom(do_pcb, folhas, pecas, nao_montados):
                 continue
             do_esquema[ref] = comp
             origem_folha[ref] = folha
+    if sem_anotacao:
+        avisar(f"esquema nao anotado: {sem_anotacao} simbolo(s) com designador terminado em "
+               "'?'; cada simbolo conta como um componente (parte de CI multiparte conta "
+               "em dobro)")
+    return do_esquema
+
+
+def montar_bom(do_pcb, folhas, pecas, nao_montados):
+    """Junta o esquema (BOM, LCSC) com o PCB (footprint, lado, tecnologia).
+
+    do_pcb None (modo so-esquema): a BOM sai so do esquema, com o footprint do
+    esquema. folhas vazio (modo so-pcb): as linhas saem do PCB, com o valor do
+    footprint no lugar do comentario e sem codigo LCSC.
+    """
+    if not folhas:
+        return [{"designador": ref, "comentario": pcb.get("valor", ""),
+                 "footprint": pcb["footprint"], "tecnologia": pcb["tecnologia"],
+                 "lado": pcb["lado"], "descricao": "", "lcsc": "",
+                 "montado": ref not in nao_montados, "montar_jlcpcb": False}
+                for ref, pcb in sorted(do_pcb.items(), key=lambda kv: ordem(kv[0]))]
+
+    do_esquema = ler_esquema(folhas)
+    so_esquema = do_pcb is None
+    if so_esquema:
+        do_pcb = {ref: {"footprint": comp["footprint"], "tecnologia": "", "lado": ""}
+                  for ref, comp in do_esquema.items()}
 
     so_no_esquema = sorted(set(do_esquema) - set(do_pcb), key=ordem)
     so_no_pcb = sorted(set(do_pcb) - set(do_esquema), key=ordem)
@@ -476,16 +608,18 @@ def montar_bom(do_pcb, folhas, pecas, nao_montados):
     if desconhecidos:
         avisar(f"a variante cita componentes que nao existem: {', '.join(desconhecidos)}")
 
-    linhas = []
+    linhas, invalidos, difere = [], defaultdict(list), []
     for designador in sorted(set(do_pcb) & set(do_esquema), key=ordem):
         sch, pcb = do_esquema[designador], do_pcb[designador]
-        if sch["footprint"] and sch["footprint"] != pcb["footprint"]:
-            avisar(f"{designador}: footprint do esquema ({sch['footprint']}) difere do "
-                   f"PCB ({pcb['footprint']}); atualize o PCB pelo esquema")
+        if sch["lcsc"] and not LCSC_VALIDO.fullmatch(sch["lcsc"]):
+            invalidos[sch["lcsc"]].append(designador)
+            sch = dict(sch, lcsc="")
+        if not so_esquema and not mesmo_footprint(sch["footprint"], pcb["footprint"]):
+            difere.append(f"{designador} ({sch['footprint']} / {pcb['footprint']})")
         peca = pecas.get(sch["lcsc"], {})
         montado = designador not in nao_montados
         linhas.append({
-            "designador": designador,
+            "designador": sch["designador"],
             "comentario": sch["comentario"],
             "footprint": pcb["footprint"],
             "tecnologia": pcb["tecnologia"],
@@ -496,6 +630,13 @@ def montar_bom(do_pcb, folhas, pecas, nao_montados):
             # padrao: montado na variante e com codigo LCSC vai para a JLCPCB
             "montar_jlcpcb": montado and bool(sch["lcsc"]) and peca.get("montar_jlcpcb", True),
         })
+    if difere:
+        avisar(f"footprint do esquema difere do PCB em {len(difere)} componente(s), "
+               "atualize o PCB pelo esquema (esquema / PCB): " + "; ".join(difere[:12])
+               + (f"; e mais {len(difere) - 12}" if len(difere) > 12 else ""))
+    for codigo, refs in sorted(invalidos.items()):
+        avisar(f"codigo LCSC invalido '{codigo}' no esquema ({', '.join(refs)}); "
+               "tratado como sem codigo")
     return linhas
 
 
@@ -695,26 +836,49 @@ def desenho_de_montagem(kicad_var, dir_mont, dir_trab, projeto, variante, nao_mo
 
 # ------------------------------------------------------------------ esquema
 
-def imprimir_esquema(folhas, dir_esq, dir_trab, projeto, variante, nao_montados):
-    """Imprime cada folha do esquema em PDF (vetorial) e junta num arquivo so."""
+def imprimir_esquema(folhas, dir_esq, dir_trab, projeto, variante, nao_montados,
+                     folha_png=None):
+    """Imprime cada folha do esquema em PDF (vetorial) e junta num arquivo so.
+
+    A imagem do README sai da folha 'folha_png' (nome do arquivo) ou, sem ela,
+    da primeira folha. Folha que nao imprime vira aviso e fica fora do PDF; sem
+    nenhuma folha impressa, o build da placa falha.
+    """
     os.makedirs(dir_esq, exist_ok=True)
     externos = {os.path.basename(p): p for p in glob.glob(os.path.join(AQUI, "*.png"))}
-    pdfs, primeira_png = [], None
+    nomes = [os.path.basename(f) for f in folhas]
+    if folha_png and folha_png not in nomes:
+        avisar(f"esquema_folha_png: '{folha_png}' nao esta entre as folhas; uso a primeira")
+        folha_png = None
+    pdfs, png, impressas = [], None, []
     for n, folha in enumerate(folhas, 1):
         svg = os.path.join(dir_trab, f"esquema-{n}.svg")
-        esquema_svg.imprimir(folha, svg, nao_montados, arquivos_externos=externos)
         pdf = os.path.join(dir_trab, f"esquema-{n}.pdf")
-        rodar(["rsvg-convert", "-f", "pdf", "-o", pdf, svg])
+        try:
+            esquema_svg.imprimir(folha, svg, nao_montados, arquivos_externos=externos)
+            rodar(["rsvg-convert", "-f", "pdf", "-o", pdf, svg])
+        except Exception as erro:  # noqa: BLE001 - uma folha nao derruba as outras
+            avisar(f"folha {os.path.basename(folha)} nao foi impressa: {erro}")
+            continue
         pdfs.append(pdf)
-        if primeira_png is None:
-            primeira_png = os.path.join(dir_trab, "esquematico.png")
-            rodar(["rsvg-convert", "-w", "3600", "-b", "white", "-o", primeira_png, svg])
+        impressas.append(os.path.basename(folha))
+        if png is None and folha_png in (None, os.path.basename(folha)):
+            folha_png = os.path.basename(folha)
+            png = os.path.join(dir_trab, "esquematico.png")
+            rodar(["rsvg-convert", "-w", "3600", "-b", "white", "-o", png, svg])
+    if not pdfs:
+        raise SystemExit("ERRO: nenhuma folha do esquema foi impressa")
+    if png is None:  # a folha pedida para a imagem nao imprimiu
+        folha_png = impressas[0]
+        png = os.path.join(dir_trab, "esquematico.png")
+        rodar(["rsvg-convert", "-w", "3600", "-b", "white", "-o", png,
+               os.path.join(dir_trab, f"esquema-{nomes.index(folha_png) + 1}.svg")])
     destino = os.path.join(dir_esq, f"{projeto}-esquema{sufixo(variante)}.pdf")
     if len(pdfs) == 1:
         shutil.copy2(pdfs[0], destino)
     else:
         rodar(["pdfunite", *pdfs, destino])
-    return destino, primeira_png
+    return destino, png, folha_png, impressas
 
 
 # ----------------------------------------------------------------- 3D e CAD
@@ -870,7 +1034,8 @@ def dados_do_teste(params, linhas, posicoes, nao_montados):
 
 
 def escrever_instrucoes(caminho, params, medidas, montagem, versao, nomes, variante,
-                        nao_montados):
+                        nao_montados, modo):
+    """INSTRUCOES-FABRICACAO.md do pacote. medidas None: sem PCB; montagem None: sem BOM."""
     proc, mont = params.get("processo", {}), params.get("montagem", {})
     fora = ", ".join(sorted(nao_montados, key=ordem)) or "nenhum"
 
@@ -884,6 +1049,8 @@ def escrever_instrucoes(caminho, params, medidas, montagem, versao, nomes, varia
     identificacao = []
     if params.get("numero_dextro"):
         identificacao.append(f"Desenho Dextro **{params['numero_dextro']}**")
+    if params.get("codigo"):
+        identificacao.append(f"codigo **{params['codigo']}**")
     if params.get("revisao"):
         identificacao.append(f"revisao **{params['revisao']}**")
     linhas = [
@@ -896,77 +1063,113 @@ def escrever_instrucoes(caminho, params, medidas, montagem, versao, nomes, varia
     linhas += [
         f"Versao do pacote: **{versao}**. Gerado automaticamente dos arquivos de projeto.",
         "",
-        "## Fabricacao da placa",
-        "",
-        "| Item | Valor |",
-        "| --- | --- |",
-        f"| Dimensoes | {medidas['largura_mm']} x {medidas['altura_mm']} mm |",
-        f"| Camadas de cobre | {medidas['camadas_cobre']} |",
-        f"| Material | {processo('material')} |",
-        f"| Espessura | {processo('espessura_mm', ' mm')} |",
-        f"| Cobre externo | {processo('cobre_externo_oz', ' oz')} |",
     ]
-    if medidas["camadas_cobre"] > 2:
-        linhas.append(f"| Cobre interno | {processo('cobre_interno_oz', ' oz')} |")
-        linhas.append(f"| Empilhamento | {processo('empilhamento')} |")
+    if modo == "so-esquema":
+        linhas += ["O repositorio nao tem o PCB (.PcbDoc) desta placa: o pacote traz so o "
+                   "esquema e a BOM do esquema. Nao ha Gerber, furacao nem pick and place.",
+                   ""]
+    if medidas:
+        linhas += [
+            "## Fabricacao da placa",
+            "",
+            "| Item | Valor |",
+            "| --- | --- |",
+            f"| Dimensoes | {medidas['largura_mm']} x {medidas['altura_mm']} mm |",
+            f"| Camadas de cobre | {medidas['camadas_cobre']} |",
+            f"| Material | {processo('material')} |",
+            f"| Espessura | {processo('espessura_mm', ' mm')} |",
+            f"| Cobre externo | {processo('cobre_externo_oz', ' oz')} |",
+        ]
+        if medidas["camadas_cobre"] > 2:
+            linhas.append(f"| Cobre interno | {processo('cobre_interno_oz', ' oz')} |")
+            linhas.append(f"| Empilhamento | {processo('empilhamento')} |")
+        linhas += [
+            f"| Mascara de solda | {processo('mascara_cor')} |",
+            f"| Silkscreen | {processo('silk_cor')} |",
+            f"| Acabamento | {processo('acabamento')} |",
+            f"| Tolerancia de contorno | {processo('tolerancia_contorno_mm', ' mm', '+/- ')} |",
+            f"| Teste eletrico | {processo('teste_eletrico')} |",
+            f"| Quantidade | {processo('quantidade_prototipo')} |",
+            f"| Trilha minima | {medidas['trilha_minima_mm']} mm |",
+            f"| Furo minimo | {medidas['furo_minimo_mm']} mm |",
+            "",
+            "Origem dos Gerber, da furacao e do pick and place: canto inferior esquerdo",
+            "da placa, todas as coordenadas positivas e no mesmo referencial.",
+            "",
+        ]
+    linhas += ["## Montagem", ""]
+    linhas.append(f"Variante de montagem: **{variante}**. Nao montados: **{fora}**." if variante
+                  else "O projeto nao tem variante de montagem: todos os componentes sao "
+                       "montados.")
+    if montagem:
+        linha_casa = f"Casa de montagem: **{mont.get('casa') or A_DEFINIR}**."
+        if mont.get("lado_smt"):
+            linha_casa += f" Lado SMT declarado no projeto: **{mont['lado_smt']}**."
+        if medidas:
+            linha_casa += (f" Componentes montados no lado superior: {montagem['lado_top']}; "
+                           f"no lado inferior: {montagem['lado_bottom']}.")
+        linhas += [
+            linha_casa,
+            "",
+            f"- Componentes montados: **{montagem['montados']}** de {montagem['total']}",
+        ]
+        if modo == "completo":
+            linhas += [
+                f"- Com codigo LCSC (BOM e CPL no formato da JLCPCB): {montagem['jlcpcb']} "
+                f"componentes, {montagem['refs_jlcpcb']} referencias",
+                f"- Sem codigo LCSC (fora da BOM e do CPL da JLCPCB): "
+                f"{montagem['sem_lcsc'] or 'nenhum'}",
+            ]
+        elif modo == "so-pcb":
+            linhas.append("- Sem esquema no repositorio: sem BOM; o pick and place traz o "
+                          "valor de cada footprint do PCB")
     linhas += [
-        f"| Mascara de solda | {processo('mascara_cor')} |",
-        f"| Silkscreen | {processo('silk_cor')} |",
-        f"| Acabamento | {processo('acabamento')} |",
-        f"| Tolerancia de contorno | {processo('tolerancia_contorno_mm', ' mm', '+/- ')} |",
-        f"| Teste eletrico | {processo('teste_eletrico')} |",
-        f"| Quantidade | {processo('quantidade_prototipo')} |",
-        f"| Trilha minima | {medidas['trilha_minima_mm']} mm |",
-        f"| Furo minimo | {medidas['furo_minimo_mm']} mm |",
-        "",
-        "Origem dos Gerber, da furacao e do pick and place: canto inferior esquerdo",
-        "da placa, todas as coordenadas positivas e no mesmo referencial.",
-        "",
-        "## Montagem",
-        "",
-        (f"Variante de montagem: **{variante}**. Nao montados: **{fora}**." if variante
-         else "O projeto nao tem variante de montagem: todos os componentes sao montados."),
-        f"Casa de montagem: **{mont.get('casa') or A_DEFINIR}**. "
-        f"Componentes montados no lado superior: {montagem['lado_top']}; "
-        f"no lado inferior: {montagem['lado_bottom']}.",
-        "",
-        f"- Componentes montados: **{montagem['montados']}** de {montagem['total']}",
-        f"- Com codigo LCSC (BOM e CPL no formato da JLCPCB): {montagem['jlcpcb']} "
-        f"componentes, {montagem['refs_jlcpcb']} referencias",
-        f"- Sem codigo LCSC (fora da BOM e do CPL da JLCPCB): "
-        f"{montagem['sem_lcsc'] or 'nenhum'}",
         "",
         "## Arquivos",
         "",
         "| Arquivo | Conteudo |",
         "| --- | --- |",
     ]
-    for _nome, ext, descricao in CAMADAS:
-        linhas.append(f"| `Gerber/*.{ext}` | {descricao} |")
+    if medidas:
+        for _nome, ext, descricao in CAMADAS:
+            linhas.append(f"| `Gerber/*.{ext}` | {descricao} |")
+        linhas += [
+            "| `NCDrill/*-PTH.drl` | Furacao metalizada (Excellon, metrico) |",
+            "| `NCDrill/*-NPTH.drl` | Furacao nao metalizada (Excellon, metrico) |",
+        ]
+    if modo != "so-pcb":
+        linhas.append(f"| `BOM/{nomes['bom_xlsx']}` | BOM dos componentes montados, colunas "
+                      "do OutJob |")
+    if medidas:
+        linhas += [
+            f"| `Pick Place/{nomes['pick_place']}` | Pick and place dos componentes montados, "
+            "lados superior e inferior |",
+            "| `Montagem/` | Desenho de montagem de cada lado"
+            + (" com componentes, BOM e CPL no formato JLCPCB |" if modo == "completo" else " |"),
+        ]
+    if modo != "so-pcb":
+        linhas.append("| `Esquema/` | Esquema eletrico, todas as folhas; nao montados saem "
+                      "riscados |")
+    if medidas:
+        linhas += [
+            "| `3D/` | PDF 3D, STEP e DXF |",
+            "| `Previa/` | Uma imagem por camada, para conferencia |",
+            "",
+            "Gerber RS-274X, aberturas embutidas, unidade metrica, extensoes Protel.",
+            "",
+            "## Furacao",
+            "",
+            "| Diametro | Furos | Tipo |",
+            "| --- | --- | --- |",
+        ]
+        for furo in medidas["furacao"]:
+            linhas.append(f"| {furo['diametro_mm']:.2f} mm | {furo['furos']} | "
+                          f"{furo['tipo']} |")
+        linhas += [
+            f"| **Total** | **{medidas['furos_total']}** | "
+            f"{medidas['furos_pth']} PTH + {medidas['furos_npth']} NPTH |",
+        ]
     linhas += [
-        "| `NCDrill/*-PTH.drl` | Furacao metalizada (Excellon, metrico) |",
-        "| `NCDrill/*-NPTH.drl` | Furacao nao metalizada (Excellon, metrico) |",
-        f"| `BOM/{nomes['bom_xlsx']}` | BOM dos componentes montados, colunas do OutJob |",
-        f"| `Pick Place/{nomes['pick_place']}` | Pick and place dos componentes montados, "
-        "lados superior e inferior |",
-        f"| `Montagem/` | Desenho de montagem de cada lado com componentes, BOM e CPL no "
-        "formato JLCPCB |",
-        f"| `Esquema/` | Esquema eletrico, todas as folhas; nao montados saem riscados |",
-        f"| `3D/` | PDF 3D, STEP e DXF |",
-        f"| `Previa/` | Uma imagem por camada, para conferencia |",
-        "",
-        "Gerber RS-274X, aberturas embutidas, unidade metrica, extensoes Protel.",
-        "",
-        "## Furacao",
-        "",
-        "| Diametro | Furos | Tipo |",
-        "| --- | --- | --- |",
-    ]
-    for furo in medidas["furacao"]:
-        linhas.append(f"| {furo['diametro_mm']:.2f} mm | {furo['furos']} | {furo['tipo']} |")
-    linhas += [
-        f"| **Total** | **{medidas['furos_total']}** | "
-        f"{medidas['furos_pth']} PTH + {medidas['furos_npth']} NPTH |",
         "",
         "## Observacoes",
         "",
@@ -990,10 +1193,55 @@ def zipar(origens, destino):
 
 # --------------------------------------------------------------------- main
 
+def escolher_folhas(params, prjpcb):
+    """Folhas do esquema, na ordem em que entram na BOM e no PDF.
+
+    1. 'esquema_folhas' (lista literal de arquivos): fixa a ordem e vale quando
+       o repositorio tem folha fora do projeto; espaco e colchete no nome nao
+       atrapalham.
+    2. A ordem do .PrjPcb, que e a da impressao do Altium (folha de topo
+       primeiro). Folha no disco que o projeto nao usa fica de fora, com aviso.
+    3. 'esquema_glob' (padrao '*.SchDoc', sem ligar para maiusculas), em ordem
+       alfabetica, quando nao ha .PrjPcb ou ele nao lista folha nenhuma.
+    """
+    if params.get("esquema_folhas"):
+        folhas = list(params["esquema_folhas"])
+        faltam = [f for f in folhas if not os.path.isfile(f)]
+        if faltam:
+            raise SystemExit(f"ERRO: folhas de esquema inexistentes: {', '.join(faltam)}")
+        return folhas
+    no_disco = achar(params.get("esquema_glob") or "*.SchDoc")
+    folhas = []
+    if prjpcb:
+        for folha in esquema.folhas_do_projeto(prjpcb):
+            if os.path.exists(folha):
+                folhas.append(folha)
+            else:
+                avisar(f"{prjpcb} lista a folha {folha}, que nao esta no repositorio")
+    if folhas:
+        usadas = {os.path.normcase(os.path.abspath(f)) for f in folhas}
+        sobrando = [f for f in no_disco
+                    if os.path.normcase(os.path.abspath(f)) not in usadas]
+        if sobrando:
+            avisar("folhas de esquema fora do projeto, ignoradas: "
+                   + ", ".join(os.path.basename(f) for f in sobrando))
+        return folhas
+    return no_disco
+
+
+def carregar_pecas(params, caminho_global):
+    """Excecoes da BOM: 'pecas' no json da placa, senao o pecas.json do kit."""
+    pecas = params.get("pecas")
+    if pecas is None and caminho_global and os.path.isfile(caminho_global):
+        pecas = json.load(open(caminho_global, encoding="utf-8"))
+    return {k: v for k, v in (pecas or {}).items() if not k.startswith("_")}
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--params", default="tools/fab/parametros.json")
-    ap.add_argument("--pecas", default="tools/fab/pecas.json")
+    ap.add_argument("--placa", "--params", dest="placa", required=False,
+                    help="json da placa (tools/fab/placas/<slug>.json)")
+    ap.add_argument("--pecas", default=os.path.join(AQUI, "pecas.json"))
     ap.add_argument("--out", default="build")
     ap.add_argument("--commit", default=os.environ.get("GITHUB_SHA", "local")[:7])
     ap.add_argument("--sem-3d", action="store_true",
@@ -1004,25 +1252,64 @@ def main():
     if args.preencher_zonas:
         _preencher_zonas(args.preencher_zonas)
         return
+    if not args.placa:
+        ap.error("--placa e obrigatorio")
 
-    params = json.load(open(args.params, encoding="utf-8"))
-    pecas = {k: v for k, v in json.load(open(args.pecas, encoding="utf-8")).items()
-             if not k.startswith("_")}
-    projeto = params["projeto"]
+    params = json.load(open(args.placa, encoding="utf-8"))
+    pecas = carregar_pecas(params, os.path.abspath(args.pecas))
+    saida = os.path.abspath(args.out)
+    slug = params.get("slug") or os.path.splitext(os.path.basename(args.placa))[0]
+    projeto = params.get("projeto") or slug
+    params["projeto"] = projeto
+    # todos os caminhos do json sao relativos a raiz da placa
+    os.chdir(params.get("raiz") or ".")
+
+    pcbdoc = params.get("pcbdoc") or ""
+    prjpcb = params.get("prjpcb") or ""
+    if params.get("ignorar_pcb") and pcbdoc:
+        avisar(f"PCB {pcbdoc} fora do pacote: {params['ignorar_pcb']}")
+        pcbdoc = ""
+    if pcbdoc and not os.path.isfile(pcbdoc):
+        raise SystemExit(f"ERRO: {pcbdoc} nao existe em {os.getcwd()}")
+    if prjpcb and not os.path.isfile(prjpcb):
+        raise SystemExit(f"ERRO: {prjpcb} nao existe em {os.getcwd()}")
+    sem_esquema = params.get("ignorar_esquema") or params.get("sem_esquema")
+    if sem_esquema:
+        if isinstance(sem_esquema, str):
+            avisar(f"esquema fora do pacote: {sem_esquema}")
+        folhas = []
+    else:
+        folhas = escolher_folhas(params, prjpcb)
+    if pcbdoc and folhas:
+        modo = "completo"
+    elif folhas:
+        modo = "so-esquema"
+    elif pcbdoc:
+        modo = "so-pcb"
+    else:
+        raise SystemExit("ERRO: a placa nao tem .PcbDoc nem folha de esquema; "
+                         "marque 'ignorar' no json com o motivo")
+    print(f"-> placa {slug} ({projeto}), modo {modo}")
+
     # A variante e opcional: projeto sem variante de montagem monta tudo.
     variante = params.get("variante") or ""
-
-    todas = esquema.variantes(params["prjpcb"])
+    if variante == SEM_VARIANTE_ALTIUM:
+        variante = ""
+    todas = esquema.variantes(prjpcb) if prjpcb else {}
     if variante:
         if variante not in todas:
-            raise SystemExit(f"ERRO: variante '{variante}' nao existe em "
-                             f"{params['prjpcb']}; ha: {', '.join(todas) or 'nenhuma'}")
+            if todas:
+                raise SystemExit(f"ERRO: variante '{variante}' nao existe em {prjpcb}; "
+                                 f"ha: {', '.join(todas)}")
+            # Projeto sem variantes: o nome do json so rotula os arquivos.
+            print(f"   {prjpcb or 'o projeto'} nao tem variantes: '{variante}' monta tudo")
+            todas = {variante: set()}
         nao_montados = todas[variante]
     else:
         nao_montados = set()
         if todas:
-            avisar(f"{params['prjpcb']} tem variantes ({', '.join(todas)}) mas "
-                   "parametros.json nao escolhe nenhuma: pacote gerado com tudo montado")
+            avisar(f"{prjpcb} tem variantes ({', '.join(todas)}) mas o json da placa "
+                   "nao escolhe nenhuma: pacote gerado com tudo montado")
 
     data = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
     # sem revisao definida no projeto, a versao e so data e commit
@@ -1030,8 +1317,8 @@ def main():
         + f"{data}-{args.commit}"
     suf = sufixo(variante)
     nomes = {
-        "zip": f"{projeto}-fab-{versao}.zip",
-        "zip_gerber": f"{projeto}-gerber-drill-{versao}.zip",
+        "zip": f"{slug}-fab-{versao}.zip",
+        "zip_gerber": f"{slug}-gerber-drill-{versao}.zip",
         "bom_xlsx": f"Bill of Materials-{projeto}{suf}.xlsx",
         "bom_csv": f"Bill of Materials-{projeto}{suf}.csv",
         "pick_place": f"Pick Place for {projeto}{suf}.csv",
@@ -1042,77 +1329,69 @@ def main():
         "dxf": f"{projeto}.dxf",
     }
 
-    if os.path.isdir(args.out):
-        shutil.rmtree(args.out)
-    dir_fab = os.path.join(args.out, "fab")
-    dir_trab = os.path.join(args.out, "trabalho")
-    dir_img = os.path.join(args.out, "img")
-    pasta = {n: os.path.join(dir_fab, n) for n in
-             ("Gerber", "NCDrill", "BOM", "Pick Place", "Montagem", "Esquema", "3D", "Previa")}
+    if os.path.isdir(saida):
+        shutil.rmtree(saida)
+    dir_fab = os.path.join(saida, "fab")
+    dir_trab = os.path.join(saida, "trabalho")
+    dir_img = os.path.join(saida, "img")
+    pastas = []
+    if pcbdoc:
+        pastas += ["Gerber", "NCDrill", "Pick Place", "Montagem", "3D", "Previa"]
+    if folhas:
+        pastas += ["BOM", "Esquema"]
+    pasta = {n: os.path.join(dir_fab, n) for n in pastas}
     for caminho in [dir_trab, dir_img, *pasta.values()]:
         os.makedirs(caminho, exist_ok=True)
 
-    print(f"-> importando {params['pcbdoc']}")
-    info, kicad_pcb = importar(params["pcbdoc"], os.path.join(args.out, "kicad"))
-    montar_lista_camadas(info["camadas_cobre"], info["nomes_altium"])
-    print("   cobre: " + ", ".join(n for n, _e, _d in CAMADAS if eh_cobre(n)))
-    kicad_var = placa_da_variante(kicad_pcb, nao_montados)
-    if variante:
-        print(f"   variante {variante}: nao montados {sorted(nao_montados, key=ordem)}")
-    else:
-        print("   sem variante de montagem: todos os componentes montados")
-
-    print("-> plotando Gerbers e furacao")
-    plotar_gerbers(kicad_pcb, pasta["Gerber"], projeto, dir_trab)
-    furar(kicad_pcb, pasta["NCDrill"], projeto)
-    medidas = medir(info, pasta["NCDrill"], kicad_pcb)
-    print(f"   {medidas['largura_mm']} x {medidas['altura_mm']} mm, "
-          f"{medidas['camadas_cobre']} camadas, {medidas['furos_total']} furos")
-    validar(pasta["Gerber"], medidas)
-    furos_fora = conferir_furos_no_contorno(pasta["NCDrill"], medidas)
-
-    # Folhas na ordem do projeto (.PrjPcb), que e a ordem de impressao do
-    # Altium: a folha de topo primeiro. O glob so entra se o .PrjPcb nao listar
-    # nenhuma folha; folha no disco que o projeto nao usa fica de fora da BOM.
-    no_disco = sorted(glob.glob(params.get("esquema_glob", "*.SchDoc")))
-    folhas = []
-    for folha in esquema.folhas_do_projeto(params["prjpcb"]):
-        if os.path.exists(folha):
-            folhas.append(folha)
+    info, medidas, furos_fora = None, None, 0
+    if pcbdoc:
+        print(f"-> importando {pcbdoc}")
+        info, kicad_pcb = importar(pcbdoc, os.path.join(saida, "kicad"))
+        montar_lista_camadas(info["camadas_cobre"], info["nomes_altium"])
+        print("   cobre: " + ", ".join(n for n, _e, _d in CAMADAS if eh_cobre(n)))
+        kicad_var = placa_da_variante(kicad_pcb, nao_montados)
+        if variante:
+            print(f"   variante {variante}: nao montados {sorted(nao_montados, key=ordem)}")
         else:
-            avisar(f"{params['prjpcb']} lista a folha {folha}, que nao esta no repositorio")
-    if folhas:
-        usadas = {os.path.normcase(os.path.abspath(f)) for f in folhas}
-        sobrando = [f for f in no_disco
-                    if os.path.normcase(os.path.abspath(f)) not in usadas]
-        if sobrando:
-            avisar("folhas de esquema fora do projeto, ignoradas: "
-                   + ", ".join(os.path.basename(f) for f in sobrando))
-    else:
-        folhas = no_disco
-    if not folhas:
-        raise SystemExit("ERRO: nenhuma folha de esquema encontrada")
-    print(f"-> BOM e pick and place a partir de {len(folhas)} folha(s) de esquema")
-    linhas = montar_bom(info["footprints"], folhas, pecas, nao_montados)
-    grupos = agrupar_bom(linhas)
-    escrever_bom_csv(os.path.join(pasta["BOM"], nomes["bom_csv"]), grupos)
-    tem_xlsx = escrever_bom_xlsx(os.path.join(pasta["BOM"], nomes["bom_xlsx"]), grupos,
-                                 f"{projeto} - variante {variante} - {versao}" if variante
-                                 else f"{projeto} - {versao}")
-    posicoes = ler_posicoes(kicad_pcb, dir_trab)
+            print("   sem variante de montagem: todos os componentes montados")
+
+        print("-> plotando Gerbers e furacao")
+        plotar_gerbers(kicad_pcb, pasta["Gerber"], projeto, dir_trab)
+        furar(kicad_pcb, pasta["NCDrill"], projeto)
+        medidas = medir(info, pasta["NCDrill"], kicad_pcb)
+        print(f"   {medidas['largura_mm']} x {medidas['altura_mm']} mm, "
+              f"{medidas['camadas_cobre']} camadas, {medidas['furos_total']} furos")
+        validar(pasta["Gerber"], medidas)
+        furos_fora = conferir_furos_no_contorno(pasta["NCDrill"], medidas)
+
+    print(f"-> BOM a partir de {len(folhas)} folha(s) de esquema" if folhas
+          else "-> sem esquema: componentes lidos do PCB")
+    linhas = montar_bom(info["footprints"] if info else None, folhas, pecas, nao_montados)
     montados = [l for l in linhas if l["montado"]]
-    no_pp = escrever_pick_place(os.path.join(pasta["Pick Place"], nomes["pick_place"]),
-                                linhas, posicoes)
-    if no_pp != len(montados):
-        faltam = sorted({l["designador"] for l in montados} - set(posicoes), key=ordem)
-        raise SystemExit(f"ERRO: {len(montados)} componentes montados mas o pick and "
-                         f"place tem {no_pp}; sem posicao: {', '.join(faltam)}")
-    na_jlc = escrever_bom_jlcpcb(os.path.join(pasta["Montagem"], nomes["bom_jlcpcb"]), linhas)
-    no_cpl = escrever_cpl_jlcpcb(os.path.join(pasta["Montagem"], nomes["cpl_jlcpcb"]),
-                                 linhas, posicoes)
-    if na_jlc != no_cpl:
-        raise SystemExit(f"ERRO: BOM da JLCPCB tem {na_jlc} componentes mas o CPL "
-                         f"tem {no_cpl}; os dois precisam casar")
+    grupos, tem_xlsx = [], False
+    if folhas:
+        grupos = agrupar_bom(linhas)
+        escrever_bom_csv(os.path.join(pasta["BOM"], nomes["bom_csv"]), grupos)
+        tem_xlsx = escrever_bom_xlsx(os.path.join(pasta["BOM"], nomes["bom_xlsx"]), grupos,
+                                     f"{projeto} - variante {variante} - {versao}" if variante
+                                     else f"{projeto} - {versao}")
+    posicoes, na_jlc = {}, 0
+    if pcbdoc:
+        posicoes = ler_posicoes(kicad_pcb, dir_trab)
+        no_pp = escrever_pick_place(os.path.join(pasta["Pick Place"], nomes["pick_place"]),
+                                    linhas, posicoes)
+        if no_pp != len(montados):
+            faltam = sorted({l["designador"] for l in montados} - set(posicoes), key=ordem)
+            raise SystemExit(f"ERRO: {len(montados)} componentes montados mas o pick and "
+                             f"place tem {no_pp}; sem posicao: {', '.join(faltam)}")
+        if folhas:
+            na_jlc = escrever_bom_jlcpcb(os.path.join(pasta["Montagem"], nomes["bom_jlcpcb"]),
+                                         linhas)
+            no_cpl = escrever_cpl_jlcpcb(os.path.join(pasta["Montagem"], nomes["cpl_jlcpcb"]),
+                                         linhas, posicoes)
+            if na_jlc != no_cpl:
+                raise SystemExit(f"ERRO: BOM da JLCPCB tem {na_jlc} componentes mas o CPL "
+                                 f"tem {no_cpl}; os dois precisam casar")
     print(f"   {len(linhas)} componentes, {len(montados)} montados, "
           f"{len(grupos)} linhas de BOM")
 
@@ -1122,88 +1401,113 @@ def main():
         "nao_montados": sorted(nao_montados, key=ordem),
         "jlcpcb": na_jlc,
         "refs_jlcpcb": len({l["lcsc"] for l in linhas if l["montar_jlcpcb"]}),
-        "sem_lcsc": ", ".join(l["designador"] for l in montados if not l["lcsc"]),
-        "smd": sum(1 for l in montados if l["tecnologia"] == "SMD"),
-        "tht": sum(1 for l in montados if l["tecnologia"] == "THT"),
-        "lado_top": sum(1 for l in montados if l["lado"] != "bottom"),
-        "lado_bottom": sum(1 for l in montados if l["lado"] == "bottom"),
+        "sem_lcsc": ", ".join(l["designador"] for l in montados if not l["lcsc"])
+        if folhas else "",
     }
+    if pcbdoc:
+        montagem.update({
+            "smd": sum(1 for l in montados if l["tecnologia"] == "SMD"),
+            "tht": sum(1 for l in montados if l["tecnologia"] == "THT"),
+            "lado_top": sum(1 for l in montados if l["lado"] != "bottom"),
+            "lado_bottom": sum(1 for l in montados if l["lado"] == "bottom"),
+        })
+    if params.get("montagem", {}).get("lado_smt"):
+        montagem["lado_smt"] = params["montagem"]["lado_smt"]
 
-    print("-> desenho de montagem")
-    lados = ["top"] + (["bottom"] if montagem["lado_bottom"] else [])
-    for lado in lados:
-        _pdf, png = desenho_de_montagem(kicad_var, pasta["Montagem"], dir_trab, projeto,
-                                        variante, nao_montados, lado, versao, medidas)
-        shutil.copy2(png, os.path.join(dir_img, f"montagem-{lado}.png"))
+    lados = []
+    if pcbdoc:
+        print("-> desenho de montagem")
+        lados = ["top"] + (["bottom"] if montagem["lado_bottom"] else [])
+        for lado in lados:
+            _pdf, png = desenho_de_montagem(kicad_var, pasta["Montagem"], dir_trab, projeto,
+                                            variante, nao_montados, lado, versao, medidas)
+            shutil.copy2(png, os.path.join(dir_img, f"montagem-{lado}.png"))
 
-    print("-> imprimindo o esquema")
-    pdf_esquema, png_esquema = imprimir_esquema(folhas, pasta["Esquema"], dir_trab,
-                                                projeto, variante, nao_montados)
-    shutil.copy2(png_esquema, os.path.join(dir_img, "esquematico.png"))
+    pdf_esquema, folha_png, impressas = None, None, []
+    if folhas:
+        print("-> imprimindo o esquema")
+        pdf_esquema, png_esquema, folha_png, impressas = imprimir_esquema(
+            folhas, pasta["Esquema"], dir_trab, projeto, variante, nao_montados,
+            params.get("esquema_folha_png"))
+        shutil.copy2(png_esquema, os.path.join(dir_img, "esquematico.png"))
 
-    print("-> previa camada a camada")
-    previa_camadas(kicad_pcb, pasta["Previa"], projeto, versao)
+    tem_dxf, tem_step, tipo_pdf3d = False, False, None
+    if pcbdoc:
+        print("-> previa camada a camada")
+        previa_camadas(kicad_pcb, pasta["Previa"], projeto, versao)
+        print("-> DXF")
+        tem_dxf = exportar_dxf(kicad_pcb, os.path.join(pasta["3D"], nomes["dxf"]))
+        if not args.sem_3d:
+            print("-> renderizando as imagens")
+            renders = renderizar(kicad_var, dir_img)
+            print("-> PDF 3D")
+            tipo_pdf3d = pdf_3d(kicad_var, os.path.join(pasta["3D"], nomes["pdf3d"]), renders)
+            print("-> STEP")
+            tem_step = exportar_step(kicad_var, os.path.join(pasta["3D"], nomes["step"]))
 
-    print("-> DXF")
-    tem_dxf = exportar_dxf(kicad_pcb, os.path.join(pasta["3D"], nomes["dxf"]))
-    tem_step, tipo_pdf3d = False, None
-    if not args.sem_3d:
-        print("-> renderizando as imagens")
-        renders = renderizar(kicad_var, dir_img)
-        print("-> PDF 3D")
-        tipo_pdf3d = pdf_3d(kicad_var, os.path.join(pasta["3D"], nomes["pdf3d"]), renders)
-        print("-> STEP")
-        tem_step = exportar_step(kicad_var, os.path.join(pasta["3D"], nomes["step"]))
-
-    teste = dados_do_teste(params, linhas, posicoes, nao_montados)
+    teste = dados_do_teste(params, linhas, posicoes, nao_montados) \
+        if (pcbdoc and folhas) else {"pontos": [], "vout": None}
     escrever_instrucoes(os.path.join(dir_fab, "INSTRUCOES-FABRICACAO.md"), params, medidas,
-                        montagem, versao, nomes, variante, nao_montados)
+                        montagem, versao, nomes, variante, nao_montados, modo)
 
-    pacote = os.path.join(args.out, nomes["zip"])
+    pacote = os.path.join(saida, nomes["zip"])
     zipar([(dir_fab, "")], pacote)
-    pacote_gerber = os.path.join(args.out, nomes["zip_gerber"])
-    zipar([(pasta["Gerber"], "Gerber"), (pasta["NCDrill"], "NCDrill")], pacote_gerber)
-    print(f"-> {pacote}\n-> {pacote_gerber}")
+    pacote_gerber = None
+    if pcbdoc:
+        pacote_gerber = os.path.join(saida, nomes["zip_gerber"])
+        zipar([(pasta["Gerber"], "Gerber"), (pasta["NCDrill"], "NCDrill")], pacote_gerber)
+    print(f"-> {pacote}" + (f"\n-> {pacote_gerber}" if pacote_gerber else ""))
 
     # Copias de nome estavel: sao elas que sustentam os links
     # /releases/latest/download/... do README, que nao podem mudar a cada versao.
-    dir_estavel = os.path.join(args.out, "estavel")
+    # O slug na frente separa as placas de um mesmo repositorio no Release.
+    dir_estavel = os.path.join(saida, "estavel")
     os.makedirs(dir_estavel, exist_ok=True)
-    estaveis = {
-        "fab": (f"{projeto}-fab-latest.zip", pacote),
-        "gerber": (f"{projeto}-gerber-drill-latest.zip", pacote_gerber),
-        "bom_csv": (f"{projeto}-bom-latest.csv", os.path.join(pasta["BOM"], nomes["bom_csv"])),
-        "pick_place": (f"{projeto}-pick-place-latest.csv",
-                       os.path.join(pasta["Pick Place"], nomes["pick_place"])),
-        "bom_jlcpcb": (f"{projeto}-jlcpcb-bom-latest.csv",
-                       os.path.join(pasta["Montagem"], nomes["bom_jlcpcb"])),
-        "cpl_jlcpcb": (f"{projeto}-jlcpcb-cpl-latest.csv",
-                       os.path.join(pasta["Montagem"], nomes["cpl_jlcpcb"])),
-        "esquema": (f"{projeto}-esquema-latest.pdf", pdf_esquema),
-        "montagem": (f"{projeto}-montagem-latest.pdf",
-                     os.path.join(pasta["Montagem"], f"{projeto}-montagem-top{suf}.pdf")),
-    }
-    if "bottom" in lados:
-        estaveis["montagem_bottom"] = (
-            f"{projeto}-montagem-bottom-latest.pdf",
-            os.path.join(pasta["Montagem"], f"{projeto}-montagem-bottom{suf}.pdf"))
-    if tem_xlsx:
-        estaveis["bom_xlsx"] = (f"{projeto}-bom-latest.xlsx",
-                                os.path.join(pasta["BOM"], nomes["bom_xlsx"]))
-    if tipo_pdf3d:
-        estaveis["pdf3d"] = (f"{projeto}-3D-latest.pdf", os.path.join(pasta["3D"], nomes["pdf3d"]))
-    if tem_step:
-        estaveis["step"] = (f"{projeto}-latest.step", os.path.join(pasta["3D"], nomes["step"]))
-    if tem_dxf:
-        estaveis["dxf"] = (f"{projeto}-latest.dxf", os.path.join(pasta["3D"], nomes["dxf"]))
+    estaveis = {"fab": (f"{slug}-fab-latest.zip", pacote)}
+    if pcbdoc:
+        estaveis.update({
+            "gerber": (f"{slug}-gerber-drill-latest.zip", pacote_gerber),
+            "pick_place": (f"{slug}-pick-place-latest.csv",
+                           os.path.join(pasta["Pick Place"], nomes["pick_place"])),
+            "montagem": (f"{slug}-montagem-latest.pdf",
+                         os.path.join(pasta["Montagem"], f"{projeto}-montagem-top{suf}.pdf")),
+        })
+        if "bottom" in lados:
+            estaveis["montagem_bottom"] = (
+                f"{slug}-montagem-bottom-latest.pdf",
+                os.path.join(pasta["Montagem"], f"{projeto}-montagem-bottom{suf}.pdf"))
+        if folhas:
+            estaveis["bom_jlcpcb"] = (f"{slug}-jlcpcb-bom-latest.csv",
+                                      os.path.join(pasta["Montagem"], nomes["bom_jlcpcb"]))
+            estaveis["cpl_jlcpcb"] = (f"{slug}-jlcpcb-cpl-latest.csv",
+                                      os.path.join(pasta["Montagem"], nomes["cpl_jlcpcb"]))
+        if tipo_pdf3d:
+            estaveis["pdf3d"] = (f"{slug}-3D-latest.pdf",
+                                 os.path.join(pasta["3D"], nomes["pdf3d"]))
+        if tem_step:
+            estaveis["step"] = (f"{slug}-latest.step", os.path.join(pasta["3D"], nomes["step"]))
+        if tem_dxf:
+            estaveis["dxf"] = (f"{slug}-latest.dxf", os.path.join(pasta["3D"], nomes["dxf"]))
+    if folhas:
+        estaveis["bom_csv"] = (f"{slug}-bom-latest.csv",
+                               os.path.join(pasta["BOM"], nomes["bom_csv"]))
+        estaveis["esquema"] = (f"{slug}-esquema-latest.pdf", pdf_esquema)
+        if tem_xlsx:
+            estaveis["bom_xlsx"] = (f"{slug}-bom-latest.xlsx",
+                                    os.path.join(pasta["BOM"], nomes["bom_xlsx"]))
     for estavel, origem_arq in estaveis.values():
         shutil.copy2(origem_arq, os.path.join(dir_estavel, estavel))
 
-    medidas.update({
-        "furos_fora_do_contorno": furos_fora, "projeto": projeto, "versao": versao,
-        "commit": args.commit, "revisao": params.get("revisao") or "", "variante": variante,
-        "camadas": [{"camada": n, "ext": e, "descricao": d} for n, e, d in CAMADAS],
-        "zonas_preenchidas": info["zonas_preenchidas"],
+    meta = dict(medidas or {})
+    meta.update({
+        "slug": slug, "titulo": params.get("titulo") or projeto,
+        "codigo": params.get("codigo") or "", "raiz": params.get("raiz") or ".",
+        "modo": modo, "furos_fora_do_contorno": furos_fora, "projeto": projeto,
+        "versao": versao, "commit": args.commit, "revisao": params.get("revisao") or "",
+        "variante": variante,
+        "camadas": [{"camada": n, "ext": e, "descricao": d} for n, e, d in CAMADAS]
+        if pcbdoc else [],
+        "zonas_preenchidas": info["zonas_preenchidas"] if info else [],
         "variantes": {n: sorted(f, key=ordem) for n, f in todas.items()},
         "montagem": montagem, "bom": grupos, "teste": teste, "nomes": nomes,
         "estaveis": {k: v[0] for k, v in estaveis.items()},
@@ -1211,9 +1515,10 @@ def main():
         "avisos": avisos,
         "casa_montagem": params.get("montagem", {}).get("casa") or A_DEFINIR,
         "lados_montagem": lados,
-        "folhas": [os.path.basename(f) for f in folhas],
+        "folhas": impressas,
+        "folha_png": folha_png,
     })
-    json.dump(medidas, open(os.path.join(args.out, "meta.json"), "w", encoding="utf-8"),
+    json.dump(meta, open(os.path.join(saida, "meta.json"), "w", encoding="utf-8"),
               indent=2, ensure_ascii=False)
 
 
