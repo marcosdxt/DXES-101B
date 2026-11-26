@@ -1,0 +1,16 @@
+[
+  {
+    "slug": "DXES-101B",
+    "titulo": "Placa-base de E/S industrial",
+    "codigo": "DXES-101B",
+    "revisao": "",
+    "pasta": "docs/placas/DXES-101B",
+    "readme": "README.md",
+    "imagem": "docs/placas/DXES-101B/img/render_top.png",
+    "release": "https://github.com/marcosdxt/DXES-101B/releases/tag/fab-20261126-480fb57",
+    "ignorado": null,
+    "modo": "completo",
+    "versao": "20261126-480fb57",
+    "raiz": "."
+  }
+]

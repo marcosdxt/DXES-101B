@@ -5,13 +5,13 @@ Placa-base de entradas e saídas industriais do conjunto DXES. Recebe por cima, 
 Este documento foi escrito a partir da netlist extraída dos esquemáticos e do dump do `DXES101B-659637.PcbDoc`. Tudo o que depende de datasheet e não pôde ser aberto está marcado como **não confirmado no datasheet** e repetido na [seção 10](#10-pendências-conhecidas).
 
 <!-- fab:imagens -->
-![Vista 3D da placa](docs/img/placa-3d.png)
+![Vista 3D da placa](<docs/placas/DXES-101B/img/placa-3d.png>)
 
 | Lado superior | Lado inferior |
 |---|---|
-| ![Lado superior](docs/img/render_top.png) | ![Lado inferior](docs/img/render_bottom.png) |
+| ![Lado superior](<docs/placas/DXES-101B/img/render_top.png>) | ![Lado inferior](<docs/placas/DXES-101B/img/render_bottom.png>) |
 
-> Imagens renderizadas pelo CI a partir do `.PcbDoc` (pacote `20261115-45a4c7e`).
+> Imagens renderizadas pelo CI a partir do `.PcbDoc` (pacote `20261126-480fb57`).
 <!-- /fab:imagens -->
 
 ## Índice
@@ -77,7 +77,7 @@ O sinal de campo entra pelos bornes das bordas da placa, passa pelo bloco de con
 ### Documentação de fabricação
 
 <!-- fab:downloads -->
-Gerados pelo CI (projeto sem variante de montagem: todos os componentes montados). Versão publicada: **`20261115-45a4c7e`**.
+Gerados pelo CI (projeto sem variante de montagem: todos os componentes montados). Versão publicada: **`20261126-480fb57`**.
 
 | Baixar | Conteúdo |
 |---|---|
@@ -95,7 +95,7 @@ Gerados pelo CI (projeto sem variante de montagem: todos os componentes montados
 | [⬇ BOM JLCPCB](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-jlcpcb-bom-latest.csv) | Comment, Designator, Footprint, LCSC Part # |
 | [⬇ CPL JLCPCB](https://github.com/marcosdxt/DXES-101B/releases/latest/download/DXES-101B-jlcpcb-cpl-latest.csv) | Designator, Mid X, Mid Y, Layer, Rotation |
 
-Os links apontam sempre para o último pacote publicado. Se o repositório for privado, eles exigem sessão do GitHub no navegador; por script, use `gh release download --pattern '*-latest.*'`. A prévia camada a camada dos Gerbers está em [`docs/PREVIA-GERBERS.md`](docs/PREVIA-GERBERS.md).
+Os links apontam sempre para o último pacote publicado. Se o repositório for privado, eles exigem sessão do GitHub no navegador; por script, use `gh release download --pattern 'DXES-101B-*-latest.*'`. A prévia camada a camada dos Gerbers está em [`PREVIA-GERBERS.md`](<docs/placas/DXES-101B/PREVIA-GERBERS.md>).
 
 > **Avisos do último build:**
 >
@@ -126,13 +126,13 @@ Quantidades contadas na netlist. Valores elétricos de CIs só aparecem quando c
 ## 3. Descrição e funcionamento do circuito
 
 <!-- fab:esquema -->
-PDF com as 10 folhas: [`docs/esquematico.pdf`](docs/esquematico.pdf)
+PDF com as 10 folhas: [`esquematico.pdf`](<docs/placas/DXES-101B/esquematico.pdf>)
 
-![Esquema elétrico, folha 1 de 10](docs/img/esquematico.png)
+![Esquema elétrico, folha DXES101B-659637-GENERAL.SchDoc](<docs/placas/DXES-101B/img/esquematico.png>)
 
-A imagem acima é a primeira folha (`DXES101B-659637-GENERAL.SchDoc`); as demais estão no PDF.
+A imagem acima é a folha `DXES101B-659637-GENERAL.SchDoc`; as demais estão no PDF.
 
-Impresso pelo CI direto das 10 folhas do projeto (`DXES101B-659637-GENERAL.SchDoc`, `DXES101B-659637-POWER-AND-SIGNALS.SchDoc`, `DXES101B-659637-DIGITAL-OUTPUTS.SchDoc`, `DXES101B-659637-RELAYS.SchDoc`, `DXES101B-659637-DIGITAL-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-OUTPUTS.SchDoc`, `DXES101B-659637-COMM-PORTS.SchDoc`, `DXES101B-659637-EXPANSION-BUS.SchDoc`, `DXES101B-659637-MODEM-PORT.SchDoc`) (pacote `20261115-45a4c7e`).
+Impresso pelo CI direto das 10 folhas do projeto (`DXES101B-659637-GENERAL.SchDoc`, `DXES101B-659637-POWER-AND-SIGNALS.SchDoc`, `DXES101B-659637-DIGITAL-OUTPUTS.SchDoc`, `DXES101B-659637-RELAYS.SchDoc`, `DXES101B-659637-DIGITAL-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-INPUTS.SchDoc`, `DXES101B-659637-ANALOG-OUTPUTS.SchDoc`, `DXES101B-659637-COMM-PORTS.SchDoc`, `DXES101B-659637-EXPANSION-BUS.SchDoc`, `DXES101B-659637-MODEM-PORT.SchDoc`) (pacote `20261126-480fb57`).
 <!-- /fab:esquema -->
 
 Em cada bloco o caminho é descrito para um canal, com os designadores reais; a tabela ao final de cada bloco lista os componentes equivalentes dos outros canais.
@@ -665,9 +665,9 @@ Sem código LCSC: D5, D6, D7, D11, D12, D13, D17, D18, D19, D20, D21, D22, D23, 
 | Trilha mínima | 0.2 mm |
 | Furação | 311 furos (311 metalizados + 0 não metalizados), de 0.40 mm a 3.50 mm |
 
-![Posição dos componentes, lado superior](docs/img/montagem-top.png)
+![Posição dos componentes, lado superior](<docs/placas/DXES-101B/img/montagem-top.png>)
 
-![Posição dos componentes, lado inferior](docs/img/montagem-bottom.png)
+![Posição dos componentes, lado inferior](<docs/placas/DXES-101B/img/montagem-bottom.png>)
 
 Desenho de montagem, gerado pelo CI.
 <!-- /fab:placa -->
