@@ -1,5 +1,8 @@
 {
   "_comentario": [
+    "Migrado do tools/fab/parametros.json do kit antigo (o slug mantem o prefixo dos",
+    "arquivos do Release, entao os links /releases/latest/download/ continuam validos).",
+    "DXES101B-659637-GENERAL.PrjPcb nao e outra placa: e um projeto vazio (nenhum DocumentPath, so OutputDocumentPath), sobra do Altium; fica de fora.",
     "Chaves opcionais, omitidas porque o projeto nao as define: numero_dextro,",
     "revisao (sem ela a versao do pacote e so data-commit), variante (o projeto",
     "nao tem variante de montagem: tudo e montado), montagem.casa e teste",
@@ -7,6 +10,11 @@
     "Em processo, qualquer item ausente ou igual a 'a definir no pedido' sai",
     "assim nas instrucoes de fabricacao; preencha quando o processo for fechado."
   ],
+  "slug": "DXES-101B",
+  "titulo": "Placa-base de E/S industrial",
+  "codigo": "DXES-101B",
+  "raiz": ".",
+  "readme": "README.md",
   "projeto": "DXES-101B",
   "pcbdoc": "DXES101B-659637.PcbDoc",
   "prjpcb": "DXES-101B.PrjPcb",

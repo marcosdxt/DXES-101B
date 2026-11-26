@@ -1,20 +1,40 @@
 name: Documentação de fabricação
 
+# Kit de marcosdxt/placas (fab-kit/). Nao edite aqui: mude no kit e reinstale
+# com fab-kit/instalar.sh, que tambem ajusta 'branches:' para a branch default.
+
 on:
   push:
     branches: [main]
     paths:
       - '**.PcbDoc'
+      - '**.PCBDOC'
+      - '**.pcbdoc'
       - '**.SchDoc'
+      - '**.SCHDOC'
+      - '**.schdoc'
       - '**.PrjPcb'
+      - '**.PRJPCB'
+      - '**.prjpcb'
       - 'tools/fab/**'
       - '.github/workflows/fabricacao.yml'
   pull_request:
     paths:
       - '**.PcbDoc'
+      - '**.PCBDOC'
+      - '**.pcbdoc'
       - '**.SchDoc'
+      - '**.SCHDOC'
+      - '**.schdoc'
       - '**.PrjPcb'
+      - '**.PRJPCB'
+      - '**.prjpcb'
       - 'tools/fab/**'
+      - '.github/workflows/fabricacao.yml'
+      # so no PR: o README da placa muda a mao, e o passo de publicar confere os
+      # marcadores <!-- fab:... --> antes do merge (no push o bot reescreve)
+      - 'README.md'
+      - 'docs/placas/*/README.md'
   workflow_dispatch:
 
 permissions:
@@ -27,34 +47,94 @@ concurrency:
 jobs:
   pacote:
     runs-on: ubuntu-24.04
-    # placa de 4 camadas com modelos 3D: render e STEP demoram; sem limite, um
-    # kicad-cli travado seguraria o job pelas 6 horas padrao do Actions
-    timeout-minutes: 90
+    # cada placa tem o proprio tempo limite (FAB_TIMEOUT_PLACA, em segundos, no
+    # fab_todas.py); este e o teto do job inteiro, para um kicad-cli travado
+    # nao segurar o runner pelas 6 horas padrao do Actions
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+
+      # Os .deb baixados ficam em cache entre os runs: o PPA do KiCad e lento.
+      - name: Cache dos pacotes do apt
+        id: apt
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-cache
+          key: apt-kicad10-ubuntu2404-v1
+
+      # O ttf-mscorefonts-installer baixa as fontes do SourceForge na instalacao
+      # (lento e instavel); com as fontes em cache ele nem e instalado.
+      - name: Cache das fontes da Microsoft
+        id: fontes
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.local/share/fonts/msttcorefonts
+          key: msttcorefonts-v1
 
       # O KiCad le o .PcbDoc do Altium pela API Python (PCB_IO_MGR.ALTIUM_DESIGNER),
       # entao nao e preciso Altium nem Windows. Os modelos 3D vem embutidos no
       # proprio .PcbDoc, entao o kicad-packages3d (2 GB) e dispensavel.
       # KiCad 10 e nao 9: o 'kicad-cli pcb export 3dpdf' so existe a partir do 10.
+      # Uma instalacao por job, para todas as placas do repositorio.
       - name: Instalar o KiCad e as ferramentas
+        # um espelho do apt travado segurou um run por 20 min sem baixar nada
+        timeout-minutes: 20
+        env:
+          FONTES_EM_CACHE: ${{ steps.fontes.outputs.cache-hit }}
         run: |
-          sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
-          sudo apt-get update -qq
+          PACOTES="xvfb poppler-utils librsvg2-bin python3-openpyxl python3-pil"
+          # Sem nenhuma placa com .PcbDoc (so esquema ou todas ignoradas), o KiCad
+          # nao e usado: economiza a instalacao inteira.
+          if python3 tools/fab/fab_todas.py --precisa-kicad; then
+            # add-apt-repository ja roda o apt-get update
+            sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
+            PACOTES="kicad $PACOTES"
+          else
+            echo 'Nenhuma placa com .PcbDoc: KiCad nao instalado.'
+            sudo apt-get update -qq
+          fi
           # O esquema usa Times New Roman, Arial e Verdana, e o silk usa Arial
           # (todas no pacote mscorefonts). Sem as fontes, o texto sai com outra
           # largura e desalinha.
-          echo 'ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true' \
-            | sudo debconf-set-selections
+          if [ "$FONTES_EM_CACHE" != 'true' ]; then
+            echo 'ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true' \
+              | sudo debconf-set-selections
+            PACOTES="$PACOTES ttf-mscorefonts-installer"
+          fi
+          mkdir -p ~/apt-cache/partial
           sudo apt-get install -y --no-install-recommends \
-            kicad xvfb poppler-utils librsvg2-bin ttf-mscorefonts-installer \
-            python3-openpyxl python3-pil
+            -o Acquire::http::Timeout=30 -o Acquire::Retries=5 \
+            -o Dir::Cache::Archives="$HOME/apt-cache" $PACOTES
+          sudo rm -rf ~/apt-cache/partial ~/apt-cache/lock
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-cache
+          if [ "$FONTES_EM_CACHE" != 'true' ]; then
+            mkdir -p ~/.local/share/fonts/msttcorefonts
+            cp /usr/share/fonts/truetype/msttcorefonts/*.ttf ~/.local/share/fonts/msttcorefonts/
+          fi
           fc-cache -f
           fc-list | grep -qi 'times new roman' || { echo 'ERRO: Times New Roman nao instalada'; exit 1; }
-          kicad-cli --version
+          if command -v kicad-cli >/dev/null; then kicad-cli --version; fi
 
-      - name: Gerar e validar o pacote
-        run: xvfb-run -a python3 tools/fab/build.py --out build --commit "${GITHUB_SHA::7}"
+      # Os caches sao salvos logo apos a instalacao, e nao no fim do job: assim
+      # um build de placa que falha nao joga fora o download.
+      - name: Salvar o cache do apt
+        if: steps.apt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-cache
+          key: apt-kicad10-ubuntu2404-v1
+
+      - name: Salvar o cache das fontes
+        if: steps.fontes.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.local/share/fonts/msttcorefonts
+          key: msttcorefonts-v1
+
+      # Uma placa que falha nao derruba as outras: o resumo diz quem falhou, e o
+      # ultimo passo (Conferir) reprova o job depois de publicar as que deram certo.
+      - name: Gerar os pacotes de todas as placas
+        run: xvfb-run -a python3 tools/fab/fab_todas.py --out build --commit "${GITHUB_SHA::7}"
 
       - name: Publicar os artefatos do build
         if: always()
@@ -62,61 +142,74 @@ jobs:
         with:
           name: documentacao-fabricacao
           path: |
-            build/*.zip
-            build/estavel/*
-            build/img/*.png
-            build/meta.json
+            build/resumo.json
+            build/*/*.zip
+            build/*/estavel/*
+            build/*/img/*.png
+            build/*/meta.json
+          if-no-files-found: warn
           retention-days: 30
 
-      # Release so nas branches, nunca em PR. Sao publicados dois jogos: os zips
-      # versionados, que ficam de arquivo, e as copias '-latest', que sustentam
-      # os links fixos do README.
+      # Release so nas branches, nunca em PR: um por push, com os zips versionados
+      # de todas as placas (prefixados pelo slug) e as copias '-latest', que
+      # sustentam os links fixos dos READMEs.
       - name: Publicar o Release
+        id: release
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSAO=$(python3 -c "import json;print(json.load(open('build/meta.json'))['versao'])")
-          # projeto sem variante de montagem: meta.json traz a variante vazia
-          VARIANTE=$(python3 -c "import json;v=json.load(open('build/meta.json'))['variante'];print(f', variante \`{v}\`' if v else ', sem variante de montagem')")
-          gh release create "$VERSAO" build/*.zip build/estavel/* \
-            --title "Documentação de fabricação $VERSAO" \
-            --notes "Gerado automaticamente do \`.PcbDoc\`, dos \`.SchDoc\` e do \`.PrjPcb\` no commit \`${GITHUB_SHA::7}\`$VARIANTE.
-
-          $(sed -n '/^## Fabricacao da placa/,/^## Arquivos/p' build/fab/INSTRUCOES-FABRICACAO.md | head -n -1)"
-
-      - name: Atualizar o README, as imagens e a prévia
-        if: github.event_name != 'pull_request'
-        run: |
-          mkdir -p docs/img docs/gerbers
-          cp build/img/*.png docs/img/
-          cp build/estavel/*-esquema-latest.pdf docs/esquematico.pdf
-          rm -f docs/gerbers/*.png
-          cp build/fab/Previa/*.png docs/gerbers/
-          sed 's|](\([A-Za-z0-9_]*\.png\))|](gerbers/\1)|' \
-            build/fab/Previa/PREVIA-GERBERS.md > docs/PREVIA-GERBERS.md
-          # O README e escrito a mao; o CI so reescreve os blocos entre os
-          # marcadores <!-- fab:... -->. Enquanto o README nao existir, as
-          # imagens e a previa sao publicadas do mesmo jeito.
-          if [ -f README.md ]; then
-            python3 tools/fab/atualiza_readme.py --meta build/meta.json \
-              --release "https://github.com/${GITHUB_REPOSITORY}"
-          else
-            echo '::warning::README.md ainda nao existe: blocos gerados nao escritos'
+          shopt -s nullglob
+          ARQUIVOS=(build/*/*.zip build/*/estavel/*)
+          if [ ${#ARQUIVOS[@]} -eq 0 ]; then
+            echo 'Nenhuma placa gerada: sem Release.'
+            exit 0
           fi
+          TAG="fab-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          python3 - "$TAG" > notas.md <<'EOF'
+          import json, sys
+          resumo = json.load(open("build/resumo.json", encoding="utf-8"))
+          print(f"Gerado automaticamente dos arquivos do Altium no commit `{sys.argv[1][-7:]}`.\n")
+          print("| Placa | Código | Estado | Versão | Modo |")
+          print("|---|---|---|---|---|")
+          for i in resumo:
+              estado = i["estado"] + (f": {i['motivo']}" if i["motivo"] else "")
+              print(f"| {i['titulo']} (`{i['slug']}`) | {i['codigo'] or '—'} | {estado} | "
+                    f"{i['versao'] or '—'} | {i['modo'] or '—'} |")
+          EOF
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" "${ARQUIVOS[@]}" --target "$GITHUB_SHA" \
+            --title "Documentação de fabricação $TAG" --notes-file notas.md
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # Tambem no PR: confere os marcadores dos READMEs, sem commitar.
+      - name: Atualizar docs, READMEs e fab-index
+        run: |
+          python3 tools/fab/publicar.py --out build \
+            --repo "https://github.com/${GITHUB_REPOSITORY}" \
+            --release "${{ steps.release.outputs.tag }}"
 
       - name: Commitar de volta
         if: github.event_name != 'pull_request'
         run: |
           git config user.name  'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/img docs/gerbers docs/PREVIA-GERBERS.md docs/esquematico.pdf
-          if [ -f README.md ]; then git add README.md; fi
+          git add -A docs
+          [ -f README.md ] && git add README.md
+          python3 -c "import json;[print(i['readme']) for i in json.load(open('build/resumo.json'))]" \
+            | while IFS= read -r arq; do [ -f "$arq" ] && git add -- "$arq"; done
           if git diff --cached --quiet; then
-            echo 'Nada mudou no README nem nas imagens.'
+            echo 'Nada mudou nos docs nem nos READMEs.'
             exit 0
           fi
-          git commit -m "chore(fab): atualiza documentação, imagens e README [skip ci]
+          git commit -q -m "chore(fab): atualiza documentação, imagens e índice [skip ci]
 
-          Gerado por .github/workflows/fabricacao.yml a partir do .PcbDoc, dos .SchDoc e do .PrjPcb."
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          Gerado por .github/workflows/fabricacao.yml a partir dos arquivos do Altium."
+          for tentativa in 1 2 3; do
+            git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
+          exit 1
+
+      - name: Conferir as placas
+        run: python3 tools/fab/fab_todas.py --conferir --out build

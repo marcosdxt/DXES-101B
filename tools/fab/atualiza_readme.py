@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Reescreve os blocos gerados do README com os dados do pacote de fabricacao.
+"""Reescreve os blocos gerados do README de uma placa com os dados do pacote.
 
 So mexe entre os marcadores <!-- fab:nome --> ... <!-- /fab:nome -->; o texto
 escrito a mao fica intacto.
 
 Marcadores obrigatorios: imagens, downloads, esquema, placa, bom.
 Marcadores opcionais (so sao escritos se existirem no README): variantes, teste.
+
+Os caminhos das imagens saem relativos a pasta do README: '--docs' e a pasta
+docs/placas/<slug> vista de onde o README esta (README da propria pasta: '.';
+README da raiz num repositorio de uma placa so: 'docs/placas/<slug>').
 """
 
 import argparse
@@ -37,24 +41,40 @@ def curto(texto, limite=70):
     return texto if len(texto) <= limite else texto[:limite - 1].rstrip() + "…"
 
 
-def bloco_imagens(meta):
+def tem_pcb(meta):
+    return meta.get("modo", "completo") != "so-esquema"
+
+
+def tem_esquema(meta):
+    return meta.get("modo", "completo") != "so-pcb"
+
+
+def bloco_imagens(meta, docs):
     imagens = meta.get("imagens", [])
+    if not tem_pcb(meta):
+        return "\n".join([
+            f"![Esquema elétrico](<{docs}/img/esquematico.png>)",
+            "",
+            "> O repositório não tem o PCB (`.PcbDoc`) desta placa: a imagem é o esquema, "
+            f"impresso pelo CI (pacote `{meta['versao']}`).",
+        ])
     linhas = []
     if "placa-3d.png" in imagens:
-        linhas += ["![Vista 3D da placa](docs/img/placa-3d.png)", ""]
-    linhas += [
-        "| Lado superior | Lado inferior |",
-        "|---|---|",
-        "| ![Lado superior](docs/img/render_top.png) | "
-        "![Lado inferior](docs/img/render_bottom.png) |",
-        "",
-        "> Imagens" + da_variante(meta, " da variante `{v}`,", "") + " renderizadas pelo "
-        f"CI a partir do `.PcbDoc` (pacote `{meta['versao']}`).",
-    ]
+        linhas += [f"![Vista 3D da placa](<{docs}/img/placa-3d.png>)", ""]
+    if "render_top.png" in imagens:
+        linhas += [
+            "| Lado superior | Lado inferior |",
+            "|---|---|",
+            f"| ![Lado superior](<{docs}/img/render_top.png>) | "
+            f"![Lado inferior](<{docs}/img/render_bottom.png>) |",
+            "",
+        ]
+    linhas.append("> Imagens" + da_variante(meta, " da variante `{v}`,", "")
+                  + f" renderizadas pelo CI a partir do `.PcbDoc` (pacote `{meta['versao']}`).")
     return "\n".join(linhas)
 
 
-def bloco_downloads(meta, base):
+def bloco_downloads(meta, base, docs):
     est = meta["estaveis"]
 
     def link(chave, rotulo):
@@ -91,39 +111,41 @@ def bloco_downloads(meta, base):
     ]
     linhas += [f"| {link(chave, rotulo)} | {descricao} |"
                for chave, rotulo, descricao in itens if chave in est]
-    linhas += [
-        "",
-        "Os links apontam sempre para o último pacote publicado. Se o repositório for "
-        "privado, eles exigem sessão do GitHub no navegador; por script, use "
-        "`gh release download --pattern '*-latest.*'`. A prévia camada a camada dos "
-        "Gerbers está em [`docs/PREVIA-GERBERS.md`](docs/PREVIA-GERBERS.md).",
-    ]
+    rodape = ("Os links apontam sempre para o último pacote publicado. Se o repositório for "
+              "privado, eles exigem sessão do GitHub no navegador; por script, use "
+              f"`gh release download --pattern '{meta.get('slug', '*')}-*-latest.*'`.")
+    if tem_pcb(meta):
+        rodape += (" A prévia camada a camada dos Gerbers está em "
+                   f"[`PREVIA-GERBERS.md`](<{docs}/PREVIA-GERBERS.md>).")
+    linhas += ["", rodape]
     if meta.get("avisos"):
         linhas += ["", "> **Avisos do último build:**", ">"]
         linhas += [f"> - {a}" for a in meta["avisos"]]
     return "\n".join(linhas)
 
 
-def bloco_esquema(meta, base):
+def bloco_esquema(meta, docs):
+    if not tem_esquema(meta):
+        return ("O repositório não tem o esquema (`.SchDoc`) desta placa: não há PDF do "
+                "esquema nem BOM.")
     folhas = meta["folhas"]
+    da_imagem = meta.get("folha_png") or folhas[0]
     if len(folhas) == 1:
         origem = f"direto do `{folhas[0]}`"
-        legenda = "![Esquema elétrico](docs/img/esquematico.png)"
+        legenda = f"![Esquema elétrico](<{docs}/img/esquematico.png>)"
     else:
         origem = (f"direto das {len(folhas)} folhas do projeto ("
                   + ", ".join(f"`{f}`" for f in folhas) + ")")
-        legenda = (f"![Esquema elétrico, folha 1 de {len(folhas)}]"
-                   "(docs/img/esquematico.png)")
+        legenda = f"![Esquema elétrico, folha {da_imagem}](<{docs}/img/esquematico.png>)"
     linhas = [
-        f"PDF" + (f" com as {len(folhas)} folhas" if len(folhas) > 1 else "")
-        + ": [`docs/esquematico.pdf`](docs/esquematico.pdf)",
+        "PDF" + (f" com as {len(folhas)} folhas" if len(folhas) > 1 else "")
+        + f": [`esquematico.pdf`](<{docs}/esquematico.pdf>)",
         "",
         legenda,
         "",
     ]
     if len(folhas) > 1:
-        linhas += [f"A imagem acima é a primeira folha (`{folhas[0]}`); as demais estão "
-                   "no PDF.", ""]
+        linhas += [f"A imagem acima é a folha `{da_imagem}`; as demais estão no PDF.", ""]
     linhas.append(
         f"Impresso pelo CI {origem} (pacote `{meta['versao']}`)"
         + da_variante(
@@ -134,11 +156,18 @@ def bloco_esquema(meta, base):
     return "\n".join(linhas)
 
 
-def bloco_placa(meta):
+def bloco_placa(meta, docs):
+    mont = meta["montagem"]
+    if not tem_pcb(meta):
+        return "\n".join([
+            "O repositório não tem o PCB (`.PcbDoc`) desta placa: não há contorno, camadas, "
+            "furação, Gerber nem desenho de montagem.",
+            "",
+            f"Componentes no esquema: {mont['total']}.",
+        ])
     furos = sorted(meta["furacao"], key=lambda f: f["diametro_mm"])
     faixa = (f"de {furos[0]['diametro_mm']:.2f} mm a {furos[-1]['diametro_mm']:.2f} mm"
              if furos else "")
-    mont = meta["montagem"]
     imagens = meta.get("imagens", [])
     linhas = [
         "| Item | Valor |",
@@ -147,7 +176,7 @@ def bloco_placa(meta):
         f"| Camadas de cobre | {meta['camadas_cobre']} |",
         f"| Componentes na placa | {meta['componentes']} |",
         "| Montados" + da_variante(meta, " na variante `{v}`", "")
-        + f" | {mont['montados']} ({mont['smd']} SMD + {mont['tht']} PTH) |",
+        + f" | {mont['montados']} ({mont.get('smd', 0)} SMD + {mont.get('tht', 0)} PTH) |",
     ]
     if "lado_top" in mont:
         linhas.append(f"| Montados por lado | {mont['lado_top']} no superior, "
@@ -158,11 +187,11 @@ def bloco_placa(meta):
         f"| Furação | {meta['furos_total']} furos ({meta['furos_pth']} metalizados + "
         f"{meta['furos_npth']} não metalizados), {faixa} |",
         "",
-        "![Posição dos componentes, lado superior](docs/img/montagem-top.png)",
+        f"![Posição dos componentes, lado superior](<{docs}/img/montagem-top.png>)",
         "",
     ]
     if "montagem-bottom.png" in imagens:
-        linhas += ["![Posição dos componentes, lado inferior](docs/img/montagem-bottom.png)",
+        linhas += [f"![Posição dos componentes, lado inferior](<{docs}/img/montagem-bottom.png>)",
                    ""]
     linhas.append("Desenho de montagem" + da_variante(meta, " da variante `{v}`", "")
                   + ", gerado pelo CI.")
@@ -170,11 +199,15 @@ def bloco_placa(meta):
 
 
 def bloco_bom(meta, base):
+    if not tem_esquema(meta):
+        return ("Sem esquema no repositório, sem BOM. O pick and place do pacote traz o "
+                "valor de cada footprint, lido do PCB.")
     est = meta["estaveis"]
     chave = "bom_xlsx" if "bom_xlsx" in est else "bom_csv"
     linhas = [
         f"Planilha: [`{est[chave]}`]({base}/releases/latest/download/{est[chave]})"
-        + da_variante(meta, " (variante `{v}`)", "") + ". Os códigos são da LCSC.",
+        + da_variante(meta, " (variante `{v}`)", "") + ". Os códigos são da LCSC."
+        + ("" if tem_pcb(meta) else " Sem PCB: o footprint é o do esquema."),
         "",
         "| Ref. | Qtd. | Valor | Descrição | Footprint | LCSC |",
         "|---|---|---|---|---|---|",
@@ -182,9 +215,10 @@ def bloco_bom(meta, base):
     for g in meta["bom"]:
         lcsc = ", ".join(f"[{c}](https://www.lcsc.com/product-detail/{c}.html)"
                          for c in g["lcsc"].split(", ") if c) or "—"
+        footprint = f"`{g['footprint']}`" if g["footprint"] else "—"
         linhas.append(f"| {', '.join(g['designadores'])} | {g['quantidade']} | "
                       f"{curto(g['comentario'])} | {curto(g['descricao'])} | "
-                      f"`{g['footprint']}` | {lcsc} |")
+                      f"{footprint} | {lcsc} |")
     sem = meta["montagem"].get("sem_lcsc")
     if sem:
         linhas += ["", f"Sem código LCSC: {sem}."]
@@ -208,7 +242,8 @@ def bloco_teste(meta):
         f"Dados da placa sob teste, tirados do projeto pelo CI (pacote `{meta['versao']}`):",
         "",
         "- " + da_variante(meta, "Variante montada: **`{v}`**", "Sem variante de montagem")
-        + f", {mont['montados']} componentes ({mont['smd']} SMD + {mont['tht']} PTH).",
+        + f", {mont['montados']} componentes ({mont.get('smd', 0)} SMD + "
+        f"{mont.get('tht', 0)} PTH).",
         f"- Posições que devem estar **vazias**: {fora}. Conferir na inspeção.",
     ]
     vout = teste.get("vout")
@@ -235,29 +270,36 @@ def bloco_teste(meta):
     return "\n".join(linhas)
 
 
+def atualizar(texto, meta, base, docs):
+    """Devolve o README com os blocos da placa reescritos."""
+    base = base.rstrip("/") or "."
+    docs = docs.rstrip("/") or "."
+    texto = substituir(texto, "imagens", bloco_imagens(meta, docs))
+    texto = substituir(texto, "downloads", bloco_downloads(meta, base, docs))
+    texto = substituir(texto, "esquema", bloco_esquema(meta, docs))
+    texto = substituir(texto, "placa", bloco_placa(meta, docs))
+    texto = substituir(texto, "bom", bloco_bom(meta, base))
+    # opcionais: projeto sem variante ou sem roteiro de teste nao precisa dos blocos
+    texto = substituir(texto, "variantes", bloco_variantes(meta), obrigatorio=False)
+    texto = substituir(texto, "teste", bloco_teste(meta), obrigatorio=False)
+    return texto
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--meta", default="build/meta.json")
     ap.add_argument("--readme", default="README.md")
     ap.add_argument("--release", default="",
                     help="URL base do repositorio, para montar os links de download")
+    ap.add_argument("--docs", default="docs",
+                    help="pasta das imagens da placa, relativa a pasta do README")
     args = ap.parse_args()
 
     with open(args.meta, encoding="utf-8") as fp:
         meta = json.load(fp)
     with open(args.readme, encoding="utf-8") as fp:
         texto = fp.read()
-    base = args.release.rstrip("/") or "."
-
-    texto = substituir(texto, "imagens", bloco_imagens(meta))
-    texto = substituir(texto, "downloads", bloco_downloads(meta, base))
-    texto = substituir(texto, "esquema", bloco_esquema(meta, base))
-    texto = substituir(texto, "placa", bloco_placa(meta))
-    texto = substituir(texto, "bom", bloco_bom(meta, base))
-    # opcionais: projeto sem variante ou sem roteiro de teste nao precisa dos blocos
-    texto = substituir(texto, "variantes", bloco_variantes(meta), obrigatorio=False)
-    texto = substituir(texto, "teste", bloco_teste(meta), obrigatorio=False)
-
+    texto = atualizar(texto, meta, args.release, args.docs)
     with open(args.readme, "w", encoding="utf-8", newline="\n") as fp:
         fp.write(texto)
     print(f"README atualizado (pacote {meta['versao']})")

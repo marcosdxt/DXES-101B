@@ -16,13 +16,45 @@ import base64
 import datetime
 import math
 import os
+import re
 import struct
 import sys
 import zlib
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape as _escape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import esquema  # noqa: E402
+
+# Caracteres de controle (ex.: \x16 que o Altium deixa no fim de um rotulo de
+# net) nao sao permitidos em XML 1.0 e fazem o rsvg-convert recusar o SVG.
+_CONTROLE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def escape(texto):
+    return _escape(_CONTROLE.sub("", texto))
+
+
+def com_barra(texto):
+    """Texto do Altium em SVG, com a barra de sinal negado.
+
+    No Altium, 'R\\D\\' e 'RD' com barra em cima: cada caractere seguido de
+    '\\' leva a barra. Os trechos com barra viram <tspan> com overline.
+    """
+    if "\\" not in texto:
+        return escape(texto)
+    trechos, i = [], 0
+    while i < len(texto):
+        barra = i + 1 < len(texto) and texto[i + 1] == "\\"
+        if texto[i] != "\\":
+            if trechos and trechos[-1][0] == barra:
+                trechos[-1][1].append(texto[i])
+            else:
+                trechos.append((barra, [texto[i]]))
+        i += 2 if barra else 1
+    return "".join(
+        f'<tspan style="text-decoration:overline">{escape("".join(c))}</tspan>' if b
+        else escape("".join(c)) for b, c in trechos)
+
 
 # SheetStyle -> (largura, altura) em 1/100 pol
 FOLHAS = {0: (1150, 760), 1: (1550, 1110), 2: (2230, 1570), 3: (3150, 2230),
@@ -193,7 +225,7 @@ class Desenho:
         giro = f" rotate({-rotacao})" if rotacao else ""
         self.saida.append(
             f'<text transform="translate({x:.2f},{y:.2f}){giro}" y="{dy:.2f}" '
-            f'text-anchor="{ancora}" style="{";".join(estilo)}">{escape(conteudo)}</text>')
+            f'text-anchor="{ancora}" style="{";".join(estilo)}">{com_barra(conteudo)}</text>')
 
     def texto_do_registro(self, reg, conteudo):
         just = int(reg.get("Justification", 0) or 0)
@@ -334,7 +366,9 @@ class Desenho:
         x0, y0 = self.ponto(simbolo)
         larg, alt = num(simbolo, "XSize"), num(simbolo, "YSize")
         lado = int(reg.get("Side", 0) or 0)
-        dist = num(reg, "DistanceFromTop") * 10
+        # o Altium guarda a fracao em DistanceFromTop_Frac1 (e nao em _Frac)
+        dist = 10 * (num(reg, "DistanceFromTop")
+                     + float(reg.get("DistanceFromTop_Frac1", 0) or 0) / 1e5)
         c, fundo = cor(reg), cor(reg, "AreaColor", "#ffffff")
         cor_texto = cor(reg, "TextColor", c)
         fonte = reg.get("TextFontID", "1")

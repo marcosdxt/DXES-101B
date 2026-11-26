@@ -64,8 +64,9 @@ O sinal de campo entra pelos bornes das bordas da placa, passa pelo bloco de con
 | `DXES101B-659637-MODEM-PORT.SchDoc` | Conector do modem |
 | `DXES101B-659637-EXPANSION-BUS.SchDoc` | Conector do barramento de expansão |
 | `DXES101B-659637.PcbDoc` | Layout |
-| `DXES101B-659637-GENERAL.PrjPcb` | Segundo arquivo de projeto presente na pasta (conteúdo não analisado) |
-| `tools/fab/` | Scripts do pipeline que gera a documentação de fabricação |
+| `DXES101B-659637-GENERAL.PrjPcb` | Segundo arquivo de projeto, vazio: não lista nenhum documento (só caminhos de saída em branco). Não é outra placa e fica fora do pipeline |
+| `tools/fab/` | Scripts do pipeline que gera a documentação de fabricação (kit de `marcosdxt/placas`) |
+| `tools/fab/placas/DXES-101B.json` | Parâmetros da placa para o pipeline (processo, observações) |
 | `.github/workflows/fabricacao.yml` | Workflow de CI que roda os scripts de `tools/fab` |
 | `Project Outputs for DXES-101B/` | Relatório de DRC do Altium (`.drc` e `.html`) |
 | `Project Logs for DXES-101B/` | Logs de ECO do Altium |
@@ -903,7 +904,7 @@ Só depois de resolvida a pendência 2 (conector de 10 vias). Conferir consumo t
 16. **Altura dos conectores da CPU.** K1, K2 e K3 têm 27 mm declarados e violam a regra de altura de 25,4 mm (3 violações no DRC). Ajustar a regra ou o modelo.
 17. **Empilhamento.** Núcleo de 1,6 mm entre os planos internos e 0,071 mm entre plano e camada externa; confirmar com o fabricante.
 18. **Datasheets não abertos.** Nenhum datasheet de componente pôde ser aberto para este documento (RY9320AT6, MST-23D18G2, EL3H7, HT03P700S, AX1RC3, LM324, 78L15, LM1117, MAX485, BAT54S, SMBJ, SM712, PTCs, BC846, BLM18PG121SN1D). Toda característica desses componentes citada aqui vem do nome da peça ou do libref e está por confirmar.
-19. **Documentação de fabricação.** O pipeline de CI em `tools/fab` ainda não publicou nenhum pacote em Releases; este README não tem links de download.
+19. **Processo de fabricação não definido.** Material, espessura, cobre, acabamento e cores estão como "a definir no pedido" em `tools/fab/placas/DXES-101B.json`.
 
 ## 11. Datasheets dos componentes
 
